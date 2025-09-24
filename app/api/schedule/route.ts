@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { properties } from '@/lib/properties'; // Your mock data
 
 // --- Load Credentials from Environment Variables ---
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -30,28 +29,26 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { propertyId, userEmail, userName, dateTime } = await req.json();
+    const { propertyAddress, userEmail, userName, dateTime } = await req.json();
 
-    // Find the property to get its address for the event location
-    const property = properties.find(p => p.id === propertyId);
-    if (!property) {
-      return NextResponse.json({ error: "Property not found" }, { status: 404 });
+    if (!propertyAddress) {
+      return NextResponse.json({ error: 'Property address is required' }, { status: 400 });
     }
 
     // --- Construct the Calendar Event Object ---
     // This is the blueprint for the event we'll create.
     const event = {
-      summary: `Property Viewing: ${property.address}`,
-      location: property.address,
+      summary: `Property Viewing: ${propertyAddress}`,
+      location: propertyAddress,
       description: `Viewing appointment for ${userName} (${userEmail}).`,
       start: {
         dateTime: new Date(dateTime).toISOString(),
-        timeZone: 'Asia/Kolkata', // Set to the correct timezone for Rourkela, India
+        timeZone: 'America/New_York',
       },
       end: {
         // Assume viewings are 30 minutes long
         dateTime: new Date(new Date(dateTime).getTime() + 30 * 60000).toISOString(),
-        timeZone: 'Asia/Kolkata',
+        timeZone: 'America/New_York',
       },
       // Invite the user to the event
       attendees: [{ email: userEmail }],
