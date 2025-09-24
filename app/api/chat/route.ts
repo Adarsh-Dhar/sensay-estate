@@ -132,28 +132,78 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
+    console.log('Starting chat processing...');
+
     // 1. Ensure user and replica exist
+    console.log('Creating/getting user...');
     const user = await getOrCreateUser();
+    console.log('User created/got:', user.id);
+    
+    console.log('Creating/getting replica...');
     const replicaUuid = await getOrCreateReplica(user.id);
+    console.log('Replica UUID:', replicaUuid);
 
     // 2. Send message to Sensay to get structured JSON criteria
+    console.log('Sending message to Sensay...');
     const chatRes = await fetch(`${SENSAY_BASE_URL}/replicas/${encodeURIComponent(replicaUuid)}/chat/completions`, {
       method: 'POST',
       headers: userHeaders(user.id),
       body: JSON.stringify({ content: message }),
     });
+    
+    console.log('Sensay response status:', chatRes.status);
+    
     if (!chatRes.ok) {
       const err = await chatRes.text();
+      console.error('Sensay API error:', err);
       throw new Error(`Chat completion failed: ${chatRes.status} ${chatRes.statusText} ${err}`);
     }
+    
     const chatJson = await chatRes.json();
+    console.log('Sensay response:', chatJson);
+    
     if (!chatJson.success || !chatJson.content) {
       throw new Error('Sensay API did not return a successful response.');
     }
 
-    // The replica is configured to ONLY return JSON, so we can parse it directly.
-    const criteria = JSON.parse(chatJson.content);
-    console.log("Parsed Criteria from Sensay:", criteria);
+    // Try to parse the response as JSON, handle cases where it's not
+    let criteria;
+    try {
+      criteria = JSON.parse(chatJson.content);
+      console.log("Parsed Criteria from Sensay:", criteria);
+    } catch (parseError) {
+      console.log("Sensay returned non-JSON response, using fallback criteria extraction");
+      // Fallback: extract criteria manually from the message
+      criteria = {
+        rent_max: null as number | null,
+        bhk: null as number | null,
+        property_type: null as "apartment" | "house" | null
+      };
+      
+      // Simple keyword extraction as fallback
+      const messageLower = message.toLowerCase();
+      
+      // Extract BHK
+      const bhkMatch = messageLower.match(/(\d+)\s*bhk/);
+      if (bhkMatch) {
+        criteria.bhk = parseInt(bhkMatch[1]);
+      }
+      
+      // Extract rent max
+      const rentMatch = messageLower.match(/under\s*(\d+)|below\s*(\d+)|less\s*than\s*(\d+)/);
+      if (rentMatch) {
+        criteria.rent_max = parseInt(rentMatch[1] || rentMatch[2] || rentMatch[3]);
+      }
+      
+      // Extract property type
+      if (messageLower.includes('apartment')) {
+        criteria.property_type = 'apartment';
+      } else if (messageLower.includes('house')) {
+        criteria.property_type = 'house';
+      }
+      
+      console.log("Fallback criteria extraction:", criteria);
+    }
     
     // 3. Filter local properties based on the criteria from Sensay
     let filteredProperties = properties.filter(prop => {
