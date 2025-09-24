@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { CHAT_SYSTEM_PROMPT } from './prompt';
 
 // --- Sensay API Configuration ---
 const SENSAY_API_KEY = process.env.SENSAY_API_KEY || '';
@@ -118,14 +119,34 @@ async function getOrCreateReplica(userId: string): Promise<string> {
   }
   const replicas = await listRes.json();
   if (replicas.items && replicas.items.length > 0) {
-    console.log('Found existing replica:', replicas.items[0].uuid);
-    return replicas.items[0].uuid as string;
+    const existing = replicas.items[0];
+    console.log('Found existing replica:', existing.uuid);
+
+    // Ensure existing replica uses the latest two-mode system prompt
+    try {
+      const updateRes = await fetch(`${SENSAY_BASE_URL}/replicas/${encodeURIComponent(existing.uuid)}`, {
+        method: 'PUT',
+        headers: userHeaders(userId),
+        body: JSON.stringify({
+          systemPrompt: CHAT_SYSTEM_PROMPT,
+          llm: { provider: 'openai', model: 'gpt-4o' },
+        }),
+      });
+      if (!updateRes.ok) {
+        const err = await updateRes.text();
+        console.warn('Failed to update existing replica prompt:', err);
+      }
+    } catch (e) {
+      console.warn('Error updating existing replica prompt:', e);
+    }
+
+    return existing.uuid as string;
   }
 
-  // If no replica exists, create one configured to extract property criteria
+  // If no replica exists, create one configured with a two-mode conversational/search prompt
   console.log('No replica found, creating a new one...');
 
-  const systemPrompt = `You are an AI assistant for a real estate platform. Your primary function is to understand a user's request and extract key filtering criteria into a pure JSON object. The JSON object must adhere to this schema: { "rent_max": number | null, "bhk": number | null, "property_type": "apartment" | "house" | null }. Do not add any conversational text, greetings, or explanations. Your response must be ONLY the JSON object. For example, if a user says "show me 3 bhk apartments under 15000", your response must be exactly: {"rent_max": 15000, "bhk": 3, "property_type": "apartment"}`;
+  const systemPrompt = CHAT_SYSTEM_PROMPT;
 
   const createRes = await fetch(`${SENSAY_BASE_URL}/replicas`, {
     method: 'POST',
@@ -157,7 +178,7 @@ async function getOrCreateReplica(userId: string): Promise<string> {
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, location = 'New York, NY' } = await req.json();
+    const { message, context } = await req.json();
     if (!message) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
@@ -173,12 +194,19 @@ export async function POST(req: NextRequest) {
     const replicaUuid = await getOrCreateReplica(user.id);
     console.log('Replica UUID:', replicaUuid);
 
-    // 2. Send message to Sensay to get structured JSON criteria
+    // 2. Build content for Sensay (include properties context for follow-ups)
+    const propertiesContext = Array.isArray(context?.properties) ? context.properties : [];
+    const baseInstruction = `${CHAT_SYSTEM_PROMPT}\n\nFollow the rules above. Respond ONLY with a single JSON object matching one of the schemas. Do not include any extra text.`;
+    let sensayPayloadContent = `${baseInstruction}\n\nUser message: ${message}`;
+    if (propertiesContext.length > 0) {
+      sensayPayloadContent = `${baseInstruction}\n\nHere is the current list of properties the user is seeing, in JSON format:\n${JSON.stringify(propertiesContext)}\n\nNow, please answer the user's follow-up question: "${message}"`;
+    }
+
     console.log('Sending message to Sensay...');
     const chatRes = await fetch(`${SENSAY_BASE_URL}/replicas/${encodeURIComponent(replicaUuid)}/chat/completions`, {
       method: 'POST',
       headers: userHeaders(user.id),
-      body: JSON.stringify({ content: message }),
+      body: JSON.stringify({ content: sensayPayloadContent }),
     });
     
     console.log('Sensay response status:', chatRes.status);
@@ -196,134 +224,193 @@ export async function POST(req: NextRequest) {
       throw new Error('Sensay API did not return a successful response.');
     }
 
-    let criteria: any;
+    // Parse AI response: expect { action: 'reply' | 'search', ... }
+    let aiResponse: any;
     try {
-      criteria = JSON.parse(chatJson.content);
-      console.log('Parsed Criteria from Sensay:', criteria);
+      aiResponse = JSON.parse(chatJson.content);
     } catch {
-      // Retry once with a strict instruction appended
+      // Retry once with a stricter instruction
+      const retryContent = `${baseInstruction}\n\nUser message: ${message}\n\nRespond ONLY with JSON. Do not include backticks or extra text.`;
       const retryRes = await fetch(`${SENSAY_BASE_URL}/replicas/${encodeURIComponent(replicaUuid)}/chat/completions`, {
         method: 'POST',
         headers: userHeaders(user.id),
-        body: JSON.stringify({
-          content: `${message}\n\nRespond ONLY with JSON: {"rent_max": number|null, "bhk": number|null, "property_type": "apartment"|"house"|null}`,
-        }),
+        body: JSON.stringify({ content: retryContent }),
       });
       if (retryRes.ok) {
         const retryJson = await retryRes.json();
         try {
-          criteria = JSON.parse(retryJson.content);
-        } catch {
-          // fall through to heuristic fallback
+          aiResponse = JSON.parse(retryJson.content);
+        } catch {}
+      }
+    }
+
+    // If still not JSON, heuristically extract a search
+    if (!aiResponse) {
+      const lower = message.toLowerCase();
+      const filters: any = { location: null, rent_max: null, rent_min: null, beds_min: null, property_type: null };
+      const cityState = message.match(/\b([A-Za-z\s]+),\s*([A-Za-z]{2})\b/);
+      if (cityState) filters.location = `${cityState[1].trim()}, ${cityState[2].toUpperCase()}`;
+      const zip = message.match(/\b(\d{5})(?:-\d{4})?\b/);
+      if (zip) filters.location = zip[1];
+      const beds = lower.match(/(\d+)\s*(bed(room)?s?|bhk)/);
+      if (beds) filters.beds_min = parseInt(beds[1]);
+      const under = lower.match(/under\s*\$?(\d{3,6})/);
+      if (under) filters.rent_max = parseInt(under[1]);
+      if (lower.includes('apartment')) filters.property_type = 'apartment';
+      if (lower.includes('house')) filters.property_type = 'house';
+      aiResponse = { action: 'search', filters };
+    }
+
+    // If conversational reply, return without RentCast call
+    if (aiResponse?.action === 'reply' && typeof aiResponse?.content === 'string') {
+      return NextResponse.json({
+        reply: aiResponse.content,
+        properties: propertiesContext,
+      });
+    }
+
+    // If search, build RentCast query from filters
+    if (aiResponse?.action === 'search' && aiResponse?.filters && typeof aiResponse.filters === 'object') {
+      if (!RENTCAST_API_KEY) {
+        console.error('RentCast API key is not configured.');
+        return NextResponse.json({
+          reply: `I couldn't reach the property data service. Please configure RENTCAST_API_KEY.`,
+          properties: [],
+        });
+      }
+
+      const filters = aiResponse.filters as {
+        location?: string | null;
+        rent_max?: number | null;
+        rent_min?: number | null;
+        beds_min?: number | null;
+        property_type?: 'apartment' | 'house' | 'condo' | null;
+      };
+
+      const params = new URLSearchParams();
+      const parsedLoc = filters.location ? parseLocation(filters.location) : undefined;
+
+      if (parsedLoc?.postalCode) {
+        params.set('postalCode', parsedLoc.postalCode);
+      } else if (parsedLoc?.city && parsedLoc?.state) {
+        params.set('city', parsedLoc.city);
+        params.set('state', parsedLoc.state);
+      } else if (parsedLoc?.address) {
+        params.set('address', parsedLoc.address);
+      } else if (parsedLoc?.city) {
+        params.set('city', parsedLoc.city);
+      }
+
+      if (filters.beds_min != null) {
+        params.set('bedrooms', String(filters.beds_min));
+      }
+
+      if (filters.property_type) {
+        const mappedType =
+          filters.property_type === 'house' ? 'Single Family'
+          : filters.property_type === 'condo' ? 'Condo'
+          : 'Condo';
+        params.set('propertyType', mappedType);
+      }
+
+      params.set('limit', '20');
+
+      const rentcastUrl = `${RENTCAST_BASE_URL}/properties?${params.toString()}`;
+      const rcRes = await fetch(rentcastUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'X-Api-Key': RENTCAST_API_KEY,
+        },
+        cache: 'no-store' as RequestCache,
+      });
+
+      if (!rcRes.ok) {
+        const errorText = await rcRes.text();
+        console.warn('RentCast API responded with error.', errorText);
+        return NextResponse.json({
+          reply: `The property data provider returned an error: ${safeTruncate(errorText, 200)}`,
+          properties: [],
+        });
+      }
+
+      let rcJson = await rcRes.json();
+      let items: any[] = Array.isArray(rcJson?.items) ? rcJson.items : (Array.isArray(rcJson) ? rcJson : []);
+
+      // Fallback: if no items, try random properties by city/state if available
+      if (items.length === 0 && (parsedLoc?.city && parsedLoc?.state)) {
+        const randomParams = new URLSearchParams({ city: parsedLoc.city, state: parsedLoc.state, limit: '20' });
+        const randomUrl = `${RENTCAST_BASE_URL}/properties/random?${randomParams.toString()}`;
+        const randomRes = await fetch(randomUrl, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json', 'X-Api-Key': RENTCAST_API_KEY },
+          cache: 'no-store' as RequestCache,
+        });
+        if (randomRes.ok) {
+          const randomJson = await randomRes.json();
+          const randomItems: any[] = Array.isArray(randomJson?.items) ? randomJson.items : (Array.isArray(randomJson) ? randomJson : []);
+          if (randomItems.length > 0) {
+            rcJson = randomJson;
+            items = randomItems;
+          }
         }
       }
+      const properties = items.map((p: any) => {
+        const formattedAddress = p.formattedAddress
+          || [p.addressLine1, p.city, p.state, p.zipCode].filter(Boolean).join(', ')
+          || [p.address?.line1, p.address?.city, p.address?.state, p.address?.zip].filter(Boolean).join(', ');
 
-      if (!criteria) {
-        // Heuristic fallback (keep your existing logic)
-        criteria = { rent_max: null, bhk: null, property_type: null };
-        const messageLower = message.toLowerCase();
-        const bhkMatch = messageLower.match(/(\d+)\s*bhk/);
-        if (bhkMatch) criteria.bhk = parseInt(bhkMatch[1]);
-        const rentMatch = messageLower.match(/under\s*(\d+)|below\s*(\d+)|less\s*than\s*(\d+)/);
-        if (rentMatch) criteria.rent_max = parseInt(rentMatch[1] || (rentMatch[2] as string) || (rentMatch[3] as string));
-        if (messageLower.includes('apartment')) criteria.property_type = 'apartment';
-        else if (messageLower.includes('house')) criteria.property_type = 'house';
+        return {
+          id: p.id || p.propertyId || `${p.latitude ?? ''},${p.longitude ?? ''}`,
+          address: formattedAddress,
+          rent: p.rent ?? p.lastListPrice ?? null,
+          bhk: p.bedrooms ?? null,
+          sqft: p.livingArea ?? p.squareFootage ?? p.buildingArea ?? null,
+          type: p.propertyType ?? null,
+          image: p.imageUrl ?? null,
+          coordinates: {
+            lat: p.latitude ?? p.location?.lat ?? null,
+            lng: p.longitude ?? p.location?.lng ?? null,
+          },
+        };
+      });
+
+      // Send the fetched properties back to Sensay to generate the final conversational reply
+      const summarizeContent = `Here are the properties found (JSON):\n${JSON.stringify(properties)}\n\nUser request: "${message}"\n\nUsing ONLY the provided JSON data above, produce a friendly, concise answer to the user. If the list is empty, suggest how to refine the search. Respond ONLY with JSON: { "action": "reply", "content": string }`;
+
+      const summarizeRes = await fetch(`${SENSAY_BASE_URL}/replicas/${encodeURIComponent(replicaUuid)}/chat/completions`, {
+        method: 'POST',
+        headers: userHeaders(user.id),
+        body: JSON.stringify({ content: summarizeContent }),
+      });
+
+      let replyText: string | undefined;
+      if (summarizeRes.ok) {
+        const summarizeJson = await summarizeRes.json();
+        try {
+          const parsed = JSON.parse(summarizeJson.content);
+          if (parsed?.action === 'reply' && typeof parsed?.content === 'string') {
+            replyText = parsed.content;
+          }
+        } catch {}
       }
-    }
-    
-    // 3. Query RentCast Property Data API
-    if (!RENTCAST_API_KEY) {
-      console.error('RentCast API key is not configured.');
+
+      if (!replyText) {
+        replyText = properties.length > 0
+          ? `I found ${properties.length} properties${filters.location ? ` in ${filters.location}` : ''}.`
+          : `I couldn't find any properties${filters.location ? ` in ${filters.location}` : ''}.`;
+      }
+
       return NextResponse.json({
-        reply: `I couldn't reach the property data service. Please configure RENTCAST_API_KEY.`,
-        properties: [],
-        criteria,
+        reply: replyText,
+        properties,
       });
     }
 
-    // Build RentCast query params
-    // We will prefer address search using the provided location string.
-    // If your app provides structured city/state/zip, you can expand this mapping.
-    const params = new URLSearchParams();
-    const loc = parseLocation(location);
-
-    if (loc.postalCode) {
-      params.set('postalCode', loc.postalCode);
-    } else if (loc.city && loc.state) {
-      params.set('city', loc.city);
-      params.set('state', loc.state);
-    } else if (loc.address) {
-      params.set('address', loc.address);
-    } else if (loc.city) {
-      // minimal fallback; better to require state, but this avoids a hard error
-      params.set('city', loc.city);
-    }
-
-    if (criteria?.bhk != null) params.set('bedrooms', String(criteria.bhk));
-
-    if (criteria?.property_type) {
-      const mappedType = criteria.property_type === 'house' ? 'Single Family' : 'Condo';
-      params.set('propertyType', mappedType);
-    }
-
-    params.set('limit', '20');
-
-    const rentcastUrl = `${RENTCAST_BASE_URL}/properties?${params.toString()}`;
-
-    const rcRes = await fetch(rentcastUrl, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'X-Api-Key': RENTCAST_API_KEY,
-      },
-      // Next.js edge may reuse; ensure no caching for freshness
-      cache: 'no-store' as RequestCache,
-    });
-
-    if (!rcRes.ok) {
-      const errorText = await rcRes.text();
-      console.warn('RentCast API responded with error.', errorText);
-      return NextResponse.json({
-        reply: `The property data provider returned an error: ${safeTruncate(errorText, 200)}`,
-        properties: [],
-        criteria,
-      });
-    }
-
-    const rcJson = await rcRes.json();
-
-    // Normalize RentCast results
-    const items: any[] = Array.isArray(rcJson?.items) ? rcJson.items : (Array.isArray(rcJson) ? rcJson : []);
-
-    const normalized = items.map((p: any) => {
-      // Best effort address formatting
-      const formattedAddress = p.formattedAddress
-        || [p.addressLine1, p.city, p.state, p.zipCode].filter(Boolean).join(', ')
-        || [p.address?.line1, p.address?.city, p.address?.state, p.address?.zip].filter(Boolean).join(', ');
-
-      return {
-        id: p.id || p.propertyId || `${p.latitude ?? ''},${p.longitude ?? ''}`,
-        address: formattedAddress,
-        rent: p.rent ?? p.lastListPrice ?? null, // RentCast Property Data may not include rent
-        bhk: p.bedrooms ?? null,
-        sqft: p.livingArea ?? p.squareFootage ?? p.buildingArea ?? null,
-        type: p.propertyType ?? null,
-        image: p.imageUrl ?? null, // Property data usually has no images
-        coordinates: {
-          lat: p.latitude ?? p.location?.lat ?? null,
-          lng: p.longitude ?? p.location?.lng ?? null,
-        },
-      };
-    });
-
-    const responseMessage = normalized.length > 0
-      ? `I found ${normalized.length} properties matching your criteria in ${location}.`
-      : `I couldn't find any properties that match your criteria in ${location}.`;
-
+    // Fallback unexpected
     return NextResponse.json({
-      reply: responseMessage,
-      properties: normalized,
-      criteria,
+      reply: "I'm sorry, I didn't understand that. Could you try rephrasing your search?",
+      properties: propertiesContext,
     });
 
   } catch (error) {
