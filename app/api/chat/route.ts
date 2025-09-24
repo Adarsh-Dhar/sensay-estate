@@ -119,32 +119,22 @@ async function getOrCreateReplica(userId: string): Promise<string> {
   }
   const replicas = await listRes.json();
   if (replicas.items && replicas.items.length > 0) {
+    // Delete the old replica and create a new one with the correct prompt
     const existing = replicas.items[0];
-    console.log('Found existing replica:', existing.uuid);
-
-    // Ensure existing replica uses the latest two-mode system prompt
+    console.log('Found existing replica, deleting and creating new one:', existing.uuid);
+    
     try {
-      const updateRes = await fetch(`${SENSAY_BASE_URL}/replicas/${encodeURIComponent(existing.uuid)}`, {
-        method: 'PUT',
+      await fetch(`${SENSAY_BASE_URL}/replicas/${encodeURIComponent(existing.uuid)}`, {
+        method: 'DELETE',
         headers: userHeaders(userId),
-        body: JSON.stringify({
-          systemPrompt: CHAT_SYSTEM_PROMPT,
-          llm: { provider: 'openai', model: 'gpt-4o' },
-        }),
       });
-      if (!updateRes.ok) {
-        const err = await updateRes.text();
-        console.warn('Failed to update existing replica prompt:', err);
-      }
     } catch (e) {
-      console.warn('Error updating existing replica prompt:', e);
+      console.warn('Error deleting old replica:', e);
     }
-
-    return existing.uuid as string;
   }
 
-  // If no replica exists, create one configured with a two-mode conversational/search prompt
-  console.log('No replica found, creating a new one...');
+  // Create a new replica with the correct two-mode prompt
+  console.log('Creating a new replica with two-mode prompt...');
 
   const systemPrompt = CHAT_SYSTEM_PROMPT;
 
@@ -152,16 +142,15 @@ async function getOrCreateReplica(userId: string): Promise<string> {
     method: 'POST',
     headers: userHeaders(userId),
     body: JSON.stringify({
-      name: `Real Estate Navigator Bot`,
-      shortDescription: 'AI assistant to find properties.',
+      name: `Real Estate Navigator Bot v2`,
+      shortDescription: 'Property search with JSON responses',
       greeting: 'Hello! How can I help you find a property today?',
       ownerID: userId,
       private: true,
-      slug: `navigator-bot-${Date.now()}`,
-      systemPrompt: systemPrompt,
+      slug: `navigator-bot-v2-${Date.now()}`,
       llm: {
-        provider: 'openai',
         model: 'gpt-4o',
+        systemMessage: systemPrompt,
       },
     }),
   });
@@ -337,8 +326,28 @@ export async function POST(req: NextRequest) {
       let rcJson = await rcRes.json();
       let items: any[] = Array.isArray(rcJson?.items) ? rcJson.items : (Array.isArray(rcJson) ? rcJson : []);
 
+      // Filter items to match requested city/state if present
+      if (items.length > 0 && (parsedLoc?.city || parsedLoc?.state)) {
+        const requestedCity = parsedLoc?.city?.toLowerCase();
+        const requestedState = parsedLoc?.state?.toUpperCase();
+        const filtered = items.filter((it: any) => {
+          const itCity = (it.city || it.address?.city || '').toLowerCase();
+          const itState = (it.state || it.address?.state || it.address?.stateCode || it.stateCode || '').toUpperCase();
+          const cityOk = requestedCity ? itCity.includes(requestedCity) || requestedCity.includes(itCity) : true;
+          const stateOk = requestedState ? itState === requestedState : true;
+          return cityOk && stateOk;
+        });
+        if (filtered.length > 0) {
+          items = filtered;
+          console.log(`Filtered to ${items.length} properties in ${requestedCity}, ${requestedState}`);
+        } else {
+          console.log(`No properties found in ${requestedCity}, ${requestedState}, keeping all ${items.length} results`);
+        }
+      }
+
       // Fallback: if no items, try random properties by city/state if available
       if (items.length === 0 && (parsedLoc?.city && parsedLoc?.state)) {
+        console.log(`No properties found, trying random properties for ${parsedLoc.city}, ${parsedLoc.state}`);
         const randomParams = new URLSearchParams({ city: parsedLoc.city, state: parsedLoc.state, limit: '20' });
         const randomUrl = `${RENTCAST_BASE_URL}/properties/random?${randomParams.toString()}`;
         const randomRes = await fetch(randomUrl, {
@@ -352,6 +361,7 @@ export async function POST(req: NextRequest) {
           if (randomItems.length > 0) {
             rcJson = randomJson;
             items = randomItems;
+            console.log(`Found ${randomItems.length} random properties for ${parsedLoc.city}, ${parsedLoc.state}`);
           }
         }
       }
@@ -396,9 +406,17 @@ export async function POST(req: NextRequest) {
       }
 
       if (!replyText) {
-        replyText = properties.length > 0
-          ? `I found ${properties.length} properties${filters.location ? ` in ${filters.location}` : ''}.`
-          : `I couldn't find any properties${filters.location ? ` in ${filters.location}` : ''}.`;
+        if (properties.length > 0) {
+          const preview = properties.slice(0, 3).map((p) => {
+            const parts = [p.address];
+            if (p.bhk) parts.push(`${p.bhk} beds`);
+            if (p.sqft) parts.push(`${p.sqft} sqft`);
+            return `- ${parts.filter(Boolean).join(' • ')}`;
+          }).join('\n');
+          replyText = `I found ${properties.length} properties${filters.location ? ` in ${filters.location}` : ''}. Top matches:\n${preview}`;
+        } else {
+          replyText = `I couldn't find any properties${filters.location ? ` in ${filters.location}` : ''}. Try widening the area, adjusting bedrooms, or removing price limits.`;
+        }
       }
 
       return NextResponse.json({
