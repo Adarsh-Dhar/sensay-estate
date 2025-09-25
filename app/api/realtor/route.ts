@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || process.env.REALTOR_RAPIDAPI_KEY || '';
 const REALTOR_API_HOST = 'realtor-data1.p.rapidapi.com';
 const REALTOR_API_URL = `https://${REALTOR_API_HOST}/property_list/`;
+const REALTOR_DETAILS_URL = (pid: string) => `https://${REALTOR_API_HOST}/properties_details/?property_id=${encodeURIComponent(pid)}`;
 
 export async function POST(req: NextRequest) {
   if (!RAPIDAPI_KEY) {
@@ -262,6 +263,55 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ results: normalized });
   } catch (err: any) {
     console.error('Error in /api/realtor:', err);
+    return NextResponse.json({ error: 'Unexpected server error' }, { status: 500 });
+  }
+}
+
+// Convenience GET to fetch full details for a single property by id
+export async function GET(req: NextRequest) {
+  if (!RAPIDAPI_KEY) {
+    console.error('RapidAPI key not configured. Set RAPIDAPI_KEY or REALTOR_RAPIDAPI_KEY.');
+    return NextResponse.json({ error: 'Server configuration error: Missing RAPIDAPI_KEY' }, { status: 500 });
+  }
+
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id') || searchParams.get('property_id');
+    if (!id) {
+      return NextResponse.json({ error: 'Missing query parameter: id' }, { status: 400 });
+    }
+
+    const url = REALTOR_DETAILS_URL(id);
+    console.log('[RealtorAPI GET] Requesting details:', { id, url });
+
+    const upstream = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'x-rapidapi-key': RAPIDAPI_KEY,
+        'x-rapidapi-host': REALTOR_API_HOST,
+      },
+      cache: 'no-store',
+    });
+
+    const text = await upstream.text();
+    const contentType = upstream.headers.get('content-type') || '';
+    const isJson = contentType.includes('application/json');
+    let data: any; try { data = isJson ? JSON.parse(text) : text; } catch { data = text; }
+
+    console.log('[RealtorAPI GET] Upstream response:', {
+      status: upstream.status,
+      ok: upstream.ok,
+      contentType,
+    });
+
+    if (!upstream.ok) {
+      return NextResponse.json({ error: 'Upstream Realtor API error', details: data }, { status: upstream.status });
+    }
+
+    // Return the upstream body as-is so the client has "all the info"
+    return NextResponse.json(data);
+  } catch (err: any) {
+    console.error('Error in /api/realtor GET:', err);
     return NextResponse.json({ error: 'Unexpected server error' }, { status: 500 });
   }
 }

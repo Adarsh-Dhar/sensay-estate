@@ -1,6 +1,7 @@
 "use client"
 
 import React from "react"
+import { Button } from "@/components/ui/button"
 import { useEffect, useMemo, useState } from "react"
 import { useParams } from "next/navigation"
 
@@ -65,6 +66,15 @@ export default function ListingPage() {
   const descriptionText = home?.description?.text as string | undefined
   const nearbySchools = (home?.nearby_schools?.schools || home?.schools?.schools || []) as Array<any>
 
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState<number>(0)
+  const totalPhotos = Array.isArray(photos) ? photos.length : 0
+  const displayedPhoto = totalPhotos > 0 ? (photos[currentPhotoIndex]?.href || primaryPhoto) : primaryPhoto
+
+  useEffect(() => {
+    // Reset to first photo when listing changes
+    setCurrentPhotoIndex(0)
+  }, [id])
+
   if (loading) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-6">
@@ -115,8 +125,30 @@ export default function ListingPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <div className="aspect-square overflow-hidden rounded-xl border bg-muted/20">
-          <img src={primaryPhoto} alt={fullAddress || `Listing ${id}`} className="h-full w-full object-cover" />
+        <div className="relative aspect-square overflow-hidden rounded-xl border bg-muted/20">
+          <img src={displayedPhoto} alt={fullAddress || `Listing ${id}`} className="h-full w-full object-cover" />
+
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-3">
+            <div className="pointer-events-auto" />
+            <div className="pointer-events-auto flex items-center gap-2">
+              {totalPhotos > 1 ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="backdrop-blur supports-[backdrop-filter]:bg-background/70"
+                  onClick={() => setCurrentPhotoIndex((i) => (i + 1) % totalPhotos)}
+                  aria-label="Next photo"
+                >
+                  Next
+                </Button>
+              ) : null}
+            </div>
+          </div>
+          {totalPhotos > 0 ? (
+            <div className="absolute left-3 top-3 rounded-full border bg-background/70 px-2 py-0.5 text-xs text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background/70">
+              {currentPhotoIndex + 1} / {totalPhotos}
+            </div>
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-4">
