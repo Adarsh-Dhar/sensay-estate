@@ -61,6 +61,8 @@ export default function ListingPage() {
   const stateCode = home?.location?.address?.state_code || home?.address?.state_code
   const postalCode = home?.location?.address?.postal_code || home?.address?.postal_code
   const fullAddress = [addressLine, city, stateCode, postalCode].filter(Boolean).join(", ")
+  const latitude = home?.location?.address?.coordinate?.lat ?? home?.location?.address?.coordinate?.latitude
+  const longitude = home?.location?.address?.coordinate?.lon ?? home?.location?.address?.coordinate?.lng ?? home?.location?.address?.coordinate?.longitude
   const price = typeof home?.list_price === "number" ? home.list_price : undefined
   const beds = home?.description?.beds ?? home?.beds ?? null
   const baths = home?.description?.baths ?? home?.baths ?? null
@@ -219,7 +221,7 @@ export default function ListingPage() {
         onOpenChange={setChatOpen}
         title="Ask AI"
         description="Ask questions about this listing or neighborhood."
-        initialPrompt={fullAddress ? `Tell me about the neighborhood around ${fullAddress}.` : undefined}
+        initialPrompt={fullAddress ? `` : undefined}
         projectId={id}
         projectContext={{
           id,
@@ -229,6 +231,8 @@ export default function ListingPage() {
           baths,
           hoaFee,
           status: home?.status,
+          latitude: typeof latitude === 'number' ? latitude : undefined,
+          longitude: typeof longitude === 'number' ? longitude : undefined,
         }}
       />
     </div>
