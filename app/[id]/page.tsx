@@ -2,6 +2,7 @@
 
 import React from "react"
 import { Button } from "@/components/ui/button"
+import ChatbotDialog from "@/components/chatbot-dialog"
 import { useEffect, useMemo, useState } from "react"
 import { useParams } from "next/navigation"
 
@@ -18,6 +19,7 @@ export default function ListingPage() {
   const [data, setData] = useState<RealtorDetailsResponse | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
+  const [chatOpen, setChatOpen] = useState<boolean>(false)
 
   useEffect(() => {
     let isActive = true
@@ -177,6 +179,10 @@ export default function ListingPage() {
               <p className="whitespace-pre-line leading-relaxed">{descriptionText}</p>
             </div>
           ) : null}
+
+          <div className="mt-2">
+            <Button onClick={() => setChatOpen(true)}>Ask AI</Button>
+          </div>
         </div>
       </div>
 
@@ -207,6 +213,24 @@ export default function ListingPage() {
           </details>
         </div>
       ) : null}
+
+      <ChatbotDialog
+        open={chatOpen}
+        onOpenChange={setChatOpen}
+        title="Ask AI"
+        description="Ask questions about this listing or neighborhood."
+        initialPrompt={fullAddress ? `Tell me about the neighborhood around ${fullAddress}.` : undefined}
+        projectId={id}
+        projectContext={{
+          id,
+          address: fullAddress,
+          price,
+          beds,
+          baths,
+          hoaFee,
+          status: home?.status,
+        }}
+      />
     </div>
   )
 }
