@@ -4,7 +4,7 @@ import type React from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Send } from "lucide-react"
+import { Send, Loader2 } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 
@@ -14,50 +14,93 @@ type Message = {
   content: string
 }
 
+type Property = {
+  id: string
+  address: string
+  rent: number | null
+  bhk: number | null
+  sqft: number | null
+  type: string | null
+  image: string | null
+  coordinates: {
+    lat: number | null
+    lng: number | null
+  }
+}
+
+type ChatSidebarProps = {
+  onPropertiesUpdate?: (properties: Property[]) => void
+}
+
 const initialMessages: Message[] = [
   {
     id: "m1",
-    role: "user",
-    content: "Looking for a quiet neighborhood with parks near Indiranagar.",
-  },
-  {
-    id: "m2",
     role: "ai",
-    content:
-      "Indiranagar offers good walkability with several parks nearby. Consider areas around 80 Feet Road and HAL 2nd Stage for quieter streets.",
-  },
-  {
-    id: "m3",
-    role: "user",
-    content: "What are typical 3 BHK rents around 1200 sqft?",
-  },
-  {
-    id: "m4",
-    role: "ai",
-    content:
-      "Typical 3 BHK (≈1200 sqft) rentals range from ₹14,000 to ₹18,000 per month depending on exact location and amenities.",
+    content: "Hello! How can I help you find a property today?",
   },
 ]
 
-export function ChatSidebar() {
+export function ChatSidebar({ onPropertiesUpdate }: ChatSidebarProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [input, setInput] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
 
-  function onSend(e: React.FormEvent) {
+  async function onSend(e: React.FormEvent) {
     e.preventDefault()
     const trimmed = input.trim()
-    if (!trimmed) return
-    setMessages((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), role: "user", content: trimmed },
-      // Mock AI response for demo
-      {
+    if (!trimmed || isLoading) return
+
+    const userMessage: Message = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: trimmed,
+    }
+
+    setMessages((prev) => [...prev, userMessage])
+    setInput("")
+    setIsLoading(true)
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: trimmed,
+          context: { properties: [] }, // We could pass current properties here for context
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const data = await response.json()
+      
+      const aiMessage: Message = {
         id: crypto.randomUUID(),
         role: "ai",
-        content: "Thanks! I’ll analyze that area’s safety, commute, and amenities to recommend options.",
-      },
-    ])
-    setInput("")
+        content: data.reply || "I'm sorry, I couldn't process your request.",
+      }
+
+      setMessages((prev) => [...prev, aiMessage])
+
+      // Update properties if they were returned
+      if (data.properties && Array.isArray(data.properties) && data.properties.length > 0) {
+        onPropertiesUpdate?.(data.properties)
+      }
+    } catch (error) {
+      console.error("Error sending message:", error)
+      const errorMessage: Message = {
+        id: crypto.randomUUID(),
+        role: "ai",
+        content: "I'm sorry, there was an error processing your request. Please try again.",
+      }
+      setMessages((prev) => [...prev, errorMessage])
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -96,9 +139,14 @@ export function ChatSidebar() {
             placeholder="Ask about a neighborhood..."
             className="flex-1"
             aria-label="Chat prompt"
+            disabled={isLoading}
           />
-          <Button type="submit" className="shrink-0" aria-label="Send message">
-            <Send className="h-4 w-4" />
+          <Button type="submit" className="shrink-0" aria-label="Send message" disabled={isLoading}>
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
             <span className="sr-only">Send</span>
           </Button>
         </div>
