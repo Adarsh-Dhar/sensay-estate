@@ -1,8 +1,10 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Bed, Ruler } from "lucide-react"
+import Link from "next/link"
 
 type PropertyCardProps = {
+  id?: string
   imageUrl: string
   price: string
   address: string
@@ -11,7 +13,7 @@ type PropertyCardProps = {
   highlights: string[]
 }
 
-export function PropertyCard({ imageUrl, price, address, beds, area, highlights }: PropertyCardProps) {
+export function PropertyCard({ id, imageUrl, price, address, beds, area, highlights }: PropertyCardProps) {
   return (
     <Card className="group overflow-hidden transition-shadow hover:shadow-md">
       <CardContent className="p-0">
@@ -51,7 +53,11 @@ export function PropertyCard({ imageUrl, price, address, beds, area, highlights 
             ))}
           </div>
 
-          <Button className="w-full">Schedule Viewing</Button>
+          <Button asChild className="w-full">
+            <Link href={`/${id || ''}`} aria-disabled={!id} className={!id ? "pointer-events-none opacity-50" : undefined}>
+              Details
+            </Link>
+          </Button>
         </div>
       </CardContent>
     </Card>

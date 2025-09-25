@@ -7,9 +7,9 @@ const SENSAY_BASE_URL = 'https://api.sensay.io/v1';
 const SENSAY_API_VERSION = '2025-03-25';
 const SAMPLE_USER_ID = 'navigator-user-001'; // A consistent ID for your sample user
 
-// --- RentCast Property Data API Config ---
-const RENTCAST_API_KEY = process.env.RENTCAST_API_KEY || '';
-const RENTCAST_BASE_URL = 'https://api.rentcast.io/v1';
+// --- Realtor Property Data API Config (via RapidAPI) ---
+const REALTOR_API_KEY = process.env.RAPIDAPI_KEY || '';
+const REALTOR_BASE_URL = 'https://realtor-data1.p.rapidapi.com';
 
 // --- Helpers ---
 function orgHeaders() {
@@ -250,6 +250,8 @@ export async function POST(req: NextRequest) {
       aiResponse = { action: 'search', filters };
     }
 
+    console.log('AI response:', aiResponse);
+
     // If conversational reply, return without RentCast call
     if (aiResponse?.action === 'reply' && typeof aiResponse?.content === 'string') {
       return NextResponse.json({
@@ -258,12 +260,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // If search, build RentCast query from filters
+    // If search, build Realtor API query from filters
     if (aiResponse?.action === 'search' && aiResponse?.filters && typeof aiResponse.filters === 'object') {
-      if (!RENTCAST_API_KEY) {
-        console.error('RentCast API key is not configured.');
+      if (!REALTOR_API_KEY) {
+        console.error('Realtor API key is not configured.');
         return NextResponse.json({
-          reply: `I couldn't reach the property data service. Please configure RENTCAST_API_KEY.`,
+          reply: `I couldn't reach the property data service. Please configure REALTOR_API_KEY.`,
           properties: [],
         });
       }
@@ -276,47 +278,37 @@ export async function POST(req: NextRequest) {
         property_type?: 'apartment' | 'house' | 'condo' | null;
       };
 
-      const params = new URLSearchParams();
       const parsedLoc = filters.location ? parseLocation(filters.location) : undefined;
 
-      if (parsedLoc?.postalCode) {
-        params.set('postalCode', parsedLoc.postalCode);
-      } else if (parsedLoc?.city && parsedLoc?.state) {
-        params.set('city', parsedLoc.city);
-        params.set('state', parsedLoc.state);
-      } else if (parsedLoc?.address) {
-        params.set('address', parsedLoc.address);
-      } else if (parsedLoc?.city) {
-        params.set('city', parsedLoc.city);
-      }
-
-      if (filters.beds_min != null) {
-        params.set('bedrooms', String(filters.beds_min));
-      }
-
+      // Build query parameters for GET request
+      const params = new URLSearchParams();
+      if (parsedLoc?.city) params.set('city', parsedLoc.city);
+      if (parsedLoc?.state) params.set('state', parsedLoc.state);
+      if (parsedLoc?.postalCode) params.set('postalCode', parsedLoc.postalCode);
+      if (parsedLoc?.address) params.set('address', parsedLoc.address);
+      if (filters.beds_min) params.set('bedrooms', String(filters.beds_min));
       if (filters.property_type) {
-        const mappedType =
-          filters.property_type === 'house' ? 'Single Family'
-          : filters.property_type === 'condo' ? 'Condo'
-          : 'Condo';
+        const mappedType = filters.property_type === 'house' ? 'Single Family' 
+          : filters.property_type === 'condo' ? 'Condo' 
+          : filters.property_type;
         params.set('propertyType', mappedType);
       }
-
       params.set('limit', '20');
 
-      const rentcastUrl = `${RENTCAST_BASE_URL}/properties?${params.toString()}`;
-      const rcRes = await fetch(rentcastUrl, {
+      const realtorUrl = `${REALTOR_BASE_URL}/properties/list-for-sale?${params.toString()}`;
+      const rcRes = await fetch(realtorUrl, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
-          'X-Api-Key': RENTCAST_API_KEY,
+          'X-RapidAPI-Key': REALTOR_API_KEY,
+          'X-RapidAPI-Host': 'realtor-data1.p.rapidapi.com',
         },
         cache: 'no-store' as RequestCache,
       });
 
       if (!rcRes.ok) {
         const errorText = await rcRes.text();
-        console.warn('RentCast API responded with error.', errorText);
+        console.warn('Realtor API responded with error.', errorText);
         return NextResponse.json({
           reply: `The property data provider returned an error: ${safeTruncate(errorText, 200)}`,
           properties: [],
@@ -324,7 +316,15 @@ export async function POST(req: NextRequest) {
       }
 
       let rcJson = await rcRes.json();
-      let items: any[] = Array.isArray(rcJson?.items) ? rcJson.items : (Array.isArray(rcJson) ? rcJson : []);
+      // Handle Realtor API response structure: data.home_search.properties
+      let items: any[] = [];
+      if (rcJson?.data?.home_search?.properties && Array.isArray(rcJson.data.home_search.properties)) {
+        items = rcJson.data.home_search.properties;
+      } else if (Array.isArray(rcJson?.items)) {
+        items = rcJson.items;
+      } else if (Array.isArray(rcJson)) {
+        items = rcJson;
+      }
 
       // Filter items to match requested city/state if present
       if (items.length > 0 && (parsedLoc?.city || parsedLoc?.state)) {
@@ -348,16 +348,34 @@ export async function POST(req: NextRequest) {
       // Fallback: if no items, try random properties by city/state if available
       if (items.length === 0 && (parsedLoc?.city && parsedLoc?.state)) {
         console.log(`No properties found, trying random properties for ${parsedLoc.city}, ${parsedLoc.state}`);
-        const randomParams = new URLSearchParams({ city: parsedLoc.city, state: parsedLoc.state, limit: '20' });
-        const randomUrl = `${RENTCAST_BASE_URL}/properties/random?${randomParams.toString()}`;
+        const randomParams = new URLSearchParams({ 
+          city: parsedLoc.city, 
+          state: parsedLoc.state, 
+          limit: '20' 
+        });
+        const randomUrl = `${REALTOR_BASE_URL}/properties/list-for-sale?${randomParams.toString()}`;
         const randomRes = await fetch(randomUrl, {
           method: 'GET',
-          headers: { 'Accept': 'application/json', 'X-Api-Key': RENTCAST_API_KEY },
+          headers: { 
+            'Accept': 'application/json',
+            'X-RapidAPI-Key': REALTOR_API_KEY,
+            'X-RapidAPI-Host': 'realtor-data1.p.rapidapi.com'
+          },
           cache: 'no-store' as RequestCache,
         });
         if (randomRes.ok) {
           const randomJson = await randomRes.json();
-          const randomItems: any[] = Array.isArray(randomJson?.items) ? randomJson.items : (Array.isArray(randomJson) ? randomJson : []);
+          console.log('Random JSON:', randomJson);
+          // Handle Realtor API response structure: data.home_search.properties
+          let randomItems: any[] = [];
+          if (randomJson?.data?.home_search?.properties && Array.isArray(randomJson.data.home_search.properties)) {
+            randomItems = randomJson.data.home_search.properties;
+          } else if (Array.isArray(randomJson?.items)) {
+            randomItems = randomJson.items;
+          } else if (Array.isArray(randomJson)) {
+            randomItems = randomJson;
+          }
+          console.log('Random items:', randomItems);
           if (randomItems.length > 0) {
             rcJson = randomJson;
             items = randomItems;
@@ -366,21 +384,23 @@ export async function POST(req: NextRequest) {
         }
       }
       const properties = items.map((p: any) => {
-        const formattedAddress = p.formattedAddress
-          || [p.addressLine1, p.city, p.state, p.zipCode].filter(Boolean).join(', ')
-          || [p.address?.line1, p.address?.city, p.address?.state, p.address?.zip].filter(Boolean).join(', ');
+        // console.log('Property:', p);
+        const formattedAddress = p.location?.address?.line || 
+          [p.location?.address?.line, p.location?.address?.city, p.location?.address?.state_code].filter(Boolean).join(', ') ||
+          [p.addressLine1, p.city, p.state, p.zipCode].filter(Boolean).join(', ') ||
+          [p.address?.line1, p.address?.city, p.address?.state, p.address?.zip].filter(Boolean).join(', ');
 
         return {
-          id: p.id || p.propertyId || `${p.latitude ?? ''},${p.longitude ?? ''}`,
+          id: p.property_id || p.id || p.propertyId || `${p.location?.address?.coordinate?.lat ?? ''},${p.location?.address?.coordinate?.lon ?? ''}`,
           address: formattedAddress,
-          rent: p.rent ?? p.lastListPrice ?? null,
-          bhk: p.bedrooms ?? null,
-          sqft: p.livingArea ?? p.squareFootage ?? p.buildingArea ?? null,
-          type: p.propertyType ?? null,
-          image: p.imageUrl ?? null,
+          rent: p.list_price ?? p.rent ?? p.lastListPrice ?? null,
+          bhk: p.description?.beds ?? p.bedrooms ?? null,
+          sqft: p.description?.sqft ?? p.livingArea ?? p.squareFootage ?? p.buildingArea ?? null,
+          type: p.description?.type ?? p.propertyType ?? null,
+          image: p.primary_photo?.href ?? p.imageUrl ?? null,
           coordinates: {
-            lat: p.latitude ?? p.location?.lat ?? null,
-            lng: p.longitude ?? p.location?.lng ?? null,
+            lat: p.location?.address?.coordinate?.lat ?? p.latitude ?? p.location?.lat ?? null,
+            lng: p.location?.address?.coordinate?.lon ?? p.longitude ?? p.location?.lng ?? null,
           },
         };
       });
@@ -432,7 +452,7 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Error in /api/chat (Sensay):', error);
+    console.error('Error in /api/chat (Sensay + Realtor):', error);
     return NextResponse.json({ error: 'Failed to process chat message via Sensay' }, { status: 500 });
   }
 }
