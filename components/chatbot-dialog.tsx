@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -16,6 +17,7 @@ type ChatMessage = {
   id: string
   role: "user" | "assistant" | "system"
   content: string
+  parsed?: any
 }
 
 type ChatbotDialogProps = {
@@ -51,6 +53,16 @@ function extractAssistantText(data: any): string {
   }
 }
 
+function tryParseJSON(text: string): any | null {
+  try {
+    const obj = JSON.parse(text)
+    if (obj && typeof obj === "object" && ("action" in obj)) return obj
+    return null
+  } catch {
+    return null
+  }
+}
+
 export function ChatbotDialog({
   open,
   onOpenChange,
@@ -69,6 +81,7 @@ export function ChatbotDialog({
   const [error, setError] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement | null>(null)
   const scrollAreaRef = useRef<HTMLDivElement | null>(null)
+  const router = useRouter()
 
   useEffect(() => {
     if (!open) {
@@ -131,10 +144,12 @@ export function ChatbotDialog({
       const json = await res.json()
       const success = Boolean(json?.success)
       const assistantText = success ? extractAssistantText(json?.data) : ""
+      const parsed = assistantText ? tryParseJSON(assistantText) : null
       const reply: ChatMessage = {
         id: `m-${Date.now()}-a`,
         role: "assistant",
         content: assistantText || (json?.error ? String(json.error) : "Unable to parse response"),
+        parsed,
       }
       setMessages((prev) => [...prev, reply])
       // Scroll to bottom after adding message
@@ -147,6 +162,19 @@ export function ChatbotDialog({
   }, [messageInput, sending, userId, replicaUuid, scrollToBottom])
 
   const canSend = useMemo(() => messageInput.trim().length > 0 && !sending, [messageInput, sending])
+
+  const handleViewResults = useCallback((filters: Record<string, any>) => {
+    const params = new URLSearchParams()
+    // Pass through recognized filter fields
+    if (filters?.location) params.set("location", String(filters.location))
+    if (filters?.rent_max != null) params.set("rent_max", String(filters.rent_max))
+    if (filters?.rent_min != null) params.set("rent_min", String(filters.rent_min))
+    if (filters?.price_max != null) params.set("price_max", String(filters.price_max))
+    if (filters?.price_min != null) params.set("price_min", String(filters.price_min))
+    if (filters?.beds_min != null) params.set("beds_min", String(filters.beds_min))
+    if (filters?.property_type) params.set("property_type", String(filters.property_type))
+    router.push(`/?${params.toString()}`)
+  }, [router])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -167,17 +195,40 @@ export function ChatbotDialog({
                 ) : (
                   <div className="flex flex-col gap-4">
                     {messages.map((m) => (
-                      <div key={m.id} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}> 
-                        <div
-                          className={cn(
-                            "max-w-[80%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm",
-                            m.role === "user"
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted"
-                          )}
-                        >
-                          {m.content}
-                        </div>
+                      <div key={m.id} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
+                        {m.role === "assistant" && m.parsed && m.parsed.action === "search" ? (
+                          <div className="bg-muted max-w-[80%] rounded-lg px-3 py-2 text-sm">
+                            <div className="mb-2 font-medium">Search prepared</div>
+                            <div className="text-muted-foreground mb-2">
+                              {(() => {
+                                const f = m.parsed?.filters || {}
+                                const loc = f.location ? `Location: ${f.location}` : "Location: —"
+                                const beds = f.beds_min != null ? ` • Beds ≥ ${f.beds_min}` : ""
+                                const type = f.property_type ? ` • Type: ${f.property_type}` : ""
+                                const price = f.price_max != null || f.price_min != null
+                                  ? ` • Price ${f.price_min != null ? `$${f.price_min}` : ''}${f.price_min != null || f.price_max != null ? '-' : ''}${f.price_max != null ? `$${f.price_max}` : ''}`
+                                  : (f.rent_max != null || f.rent_min != null
+                                    ? ` • Rent ${f.rent_min != null ? `$${f.rent_min}` : ''}${f.rent_min != null || f.rent_max != null ? '-' : ''}${f.rent_max != null ? `$${f.rent_max}` : ''}`
+                                    : "")
+                                return `${loc}${beds}${type}${price}`
+                              })()}
+                            </div>
+                            <div className="flex gap-2">
+                              <Button size="sm" onClick={() => handleViewResults(m.parsed?.filters || {})}>View results</Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            className={cn(
+                              "max-w-[80%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm",
+                              m.role === "user"
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-muted"
+                            )}
+                          >
+                            {m.content}
+                          </div>
+                        )}
                       </div>
                     ))}
                     {sending ? (
