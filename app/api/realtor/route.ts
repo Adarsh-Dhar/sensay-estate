@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
     const payload: Record<string, any> = {
       ...(Object.keys(query).length > 0 ? { query } : {}),
       ...defaultQuery,
-      ...(limit !== undefined ? { limit } : { limit: 12 }),
+      ...(limit !== undefined ? { limit } : { limit: 100 }),
       ...(offset !== undefined ? { offset } : {}),
       ...(effectiveSort ? { sort: effectiveSort } : {}),
     };

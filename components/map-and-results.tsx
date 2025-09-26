@@ -3,73 +3,23 @@
 import { MapPlaceholder } from "./map-placeholder"
 import { PropertyCard } from "./property-card"
 import { useEffect, useMemo, useState } from "react"
-
-type RealtorFilters = {
-  limit?: number
-  offset?: number
-  state_code?: string
-  city?: string
-  street_name?: string
-  address?: string
-  postal_code?: string
-  agent_source_id?: string
-  selling_agent_name?: string
-  source_listing_id?: string
-  property_id?: string
-  fulfillment_id?: string
-  search_location?: { radius?: number; location?: string }
-  radius?: number
-  location?: string
-  status?: string[]
-  type?: string[]
-  keywords?: string[] | string
-  boundary?: any
-  baths?: { min?: number; max?: number }
-  beds?: { min?: number; max?: number }
-  open_house?: { min?: string; max?: string }
-  year_built?: { min?: number; max?: number }
-  sold_price?: { min?: number; max?: number }
-  sold_date?: { min?: string; max?: string }
-  list_price?: { min?: number; max?: number }
-  lot_sqft?: { min?: number; max?: number }
-  sqft?: { min?: number; max?: number }
-  hoa_fee?: { min?: number; max?: number }
-  no_hoa_fee?: boolean
-  pending?: boolean
-  contingent?: boolean
-  foreclosure?: boolean
-  has_tour?: boolean
-  new_construction?: boolean
-  cats?: boolean
-  dogs?: boolean
-  matterport?: boolean
-  sort?: { direction?: "asc" | "desc"; field?: string }
-  direction?: "asc" | "desc"
-  field?: string
-}
-
-type IncomingProperty = {
-  id?: string
-  address?: string
-  rent?: number | null
-  bhk?: number | null
-  sqft?: number | null
-  type?: string | null
-  image?: string | null
-  coordinates?: { lat: number | null; lng: number | null }
-}
+import { Property, PropertyFilters as PropertyFiltersType } from "@/types/property"
+import { convertToRealtorFilters, filterProperties, convertPropertyToCardData } from "@/lib/property-filters"
 
 type MapAndResultsProps = {
-  filters?: RealtorFilters
-  properties?: IncomingProperty[]
+  filters?: PropertyFiltersType
+  properties?: Property[]
 }
 
 export function MapAndResults({ filters, properties }: MapAndResultsProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [items, setItems] = useState<any[]>([])
+  const [items, setItems] = useState<Property[]>([])
 
-  const payload = useMemo(() => filters || { status: ["for_sale"], limit: 12 }, [filters])
+  const payload = useMemo(() => {
+    const defaultFilters = { status: ["for_sale"], limit: 12 }
+    return filters ? convertToRealtorFilters(filters) : defaultFilters
+  }, [filters])
 
   useEffect(() => {
     let isMounted = true
@@ -83,8 +33,9 @@ export function MapAndResults({ filters, properties }: MapAndResultsProps) {
           body: JSON.stringify(payload),
         })
         const data = await res.json()
-        console.log("data",data)
+        console.log("data", data)
         if (!res.ok) throw new Error(data?.error || "Failed to load properties")
+        
         // Try common shapes from Realtor API wrappers
         const list = (data?.data as any[]) || (data?.results as any[]) || (data?.properties as any[]) || (data?.listings as any[]) || []
         if (isMounted) setItems(Array.isArray(list) ? list : [])
@@ -100,44 +51,15 @@ export function MapAndResults({ filters, properties }: MapAndResultsProps) {
     }
   }, [payload, properties])
 
-  // Convert API items to PropertyCard format defensively
-  const propertyCards = items.map((it: any) => {
-    // Prefer inbound properties shape first
-    const inboundPrice = it?.rent ?? null
-    const inboundBeds = it?.bhk ?? null
-    const inboundSqft = it?.sqft ?? null
-    const inboundAddress = it?.address ?? null
-    const inboundImage = it?.image ?? null
-    const inboundType = it?.type ?? null
+  // Apply client-side filtering if needed
+  const filteredItems = useMemo(() => {
+    if (!filters) return items
+    return filterProperties(items, filters)
+  }, [items, filters])
 
-    const price = inboundPrice ?? it?.list_price ?? it?.price ?? null
-    const beds = inboundBeds ?? it?.beds ?? it?.bedrooms ?? null
-    const sqft = inboundSqft ?? it?.building_size?.size ?? it?.sqft ?? it?.living_area ?? null
-    const addressLine = inboundAddress || it?.location?.address?.line || it?.address?.line || it?.address ||
-      [it?.location?.address?.street, it?.location?.address?.city, it?.location?.address?.state_code, it?.location?.address?.postal_code]
-        .filter(Boolean)
-        .join(", ")
-    const imageUrl = inboundImage || it?.photos?.[0]?.href || it?.primary_photo?.href || it?.photo || "/placeholder.jpg"
-    const type = Array.isArray(it?.description?.type) ? it.description.type.join(", ") : (inboundType || it?.description?.type || it?.prop_type || null)
-    const status = it?.status || it?.listing_status || null
-    const baths = it?.baths ?? it?.bathrooms ?? null
-
-    // Attempt to extract a stable Realtor property_id
-    const id = it?.property_id || it?.property_id_str || it?.property?.property_id || it?.id || undefined
-
-    return {
-      id,
-      imageUrl,
-      price: price ? `$${Number(price).toLocaleString()}` : "Price not available",
-      address: addressLine || "Address not available",
-      beds: beds ? `${beds} beds` : "Beds not specified",
-      area: sqft ? `${sqft} sqft` : "Area not specified",
-      highlights: [
-        status ? `Status: ${status}` : null,
-        type ? `Type: ${type}` : null,
-        baths ? `Baths: ${baths}` : null,
-      ].filter(Boolean) as string[],
-    }
+  // Convert API items to PropertyCard format
+  const propertyCards = filteredItems.map((property: Property) => {
+    return convertPropertyToCardData(property)
   })
   return (
     <div className="flex h-full flex-col gap-4 p-4">
