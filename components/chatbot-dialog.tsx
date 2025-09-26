@@ -68,6 +68,7 @@ export function ChatbotDialog({
   const [sending, setSending] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement | null>(null)
+  const scrollAreaRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (!open) {
@@ -82,8 +83,23 @@ export function ChatbotDialog({
   }, [open])
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+    // Use setTimeout to ensure DOM is updated before scrolling
+    setTimeout(() => {
+      if (endRef.current) {
+        endRef.current.scrollIntoView({ behavior: "smooth", block: "end" })
+      }
+    }, 100)
   }, [messages, sending])
+
+  // Alternative scroll method for better reliability
+  const scrollToBottom = useCallback(() => {
+    if (scrollAreaRef.current) {
+      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]')
+      if (scrollContainer) {
+        scrollContainer.scrollTop = scrollContainer.scrollHeight
+      }
+    }
+  }, [])
 
   const sendMessage = useCallback(async () => {
     const content = messageInput.trim()
@@ -98,6 +114,8 @@ export function ChatbotDialog({
     }
     setMessages((prev) => [...prev, userMsg])
     setMessageInput("")
+    // Scroll to bottom after adding user message
+    setTimeout(scrollToBottom, 100)
 
     try {
       const res = await fetch("/api/chat", {
@@ -119,12 +137,14 @@ export function ChatbotDialog({
         content: assistantText || (json?.error ? String(json.error) : "Unable to parse response"),
       }
       setMessages((prev) => [...prev, reply])
+      // Scroll to bottom after adding message
+      setTimeout(scrollToBottom, 100)
     } catch (e: any) {
       setError(e?.message || "Something went wrong sending your message")
     } finally {
       setSending(false)
     }
-  }, [messageInput, sending, userId, replicaUuid])
+  }, [messageInput, sending, userId, replicaUuid, scrollToBottom])
 
   const canSend = useMemo(() => messageInput.trim().length > 0 && !sending, [messageInput, sending])
 
@@ -137,40 +157,42 @@ export function ChatbotDialog({
             <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
 
-          <ScrollArea className="flex-1 px-4">
-            <div className="mx-auto w-full max-w-none py-4">
-              {messages.length === 0 ? (
-                <div className="text-muted-foreground py-16 text-center text-sm">
-                  Start the conversation by asking a question.
-                </div>
-              ) : (
-                <div className="flex flex-col gap-4">
-                  {messages.map((m) => (
-                    <div key={m.id} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}> 
-                      <div
-                        className={cn(
-                          "max-w-[80%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm",
-                          m.role === "user"
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted"
-                        )}
-                      >
-                        {m.content}
+          <div className="flex-1 overflow-hidden">
+            <ScrollArea className="h-full" ref={scrollAreaRef}>
+              <div className="px-4 py-4">
+                {messages.length === 0 ? (
+                  <div className="text-muted-foreground py-16 text-center text-sm">
+                    Start the conversation by asking a question.
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-4">
+                    {messages.map((m) => (
+                      <div key={m.id} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}> 
+                        <div
+                          className={cn(
+                            "max-w-[80%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm",
+                            m.role === "user"
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted"
+                          )}
+                        >
+                          {m.content}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                  {sending ? (
-                    <div className="flex justify-start">
-                      <div className="bg-muted text-muted-foreground max-w-[80%] rounded-lg px-3 py-2 text-sm">
-                        Thinking…
+                    ))}
+                    {sending ? (
+                      <div className="flex justify-start">
+                        <div className="bg-muted text-muted-foreground max-w-[80%] rounded-lg px-3 py-2 text-sm">
+                          Thinking…
+                        </div>
                       </div>
-                    </div>
-                  ) : null}
-                  <div ref={endRef} />
-                </div>
-              )}
-            </div>
-          </ScrollArea>
+                    ) : null}
+                    <div ref={endRef} />
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+          </div>
 
           <div className="border-t p-3 sm:p-4">
             {error ? (
