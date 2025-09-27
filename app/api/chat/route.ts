@@ -67,7 +67,7 @@ const replicaCache = new Map<string, string>() // userId -> replicaUuid
 const projectCache = new Map<string, { realtorDetails?: any; neighborhood?: any; ts: number }>() // projectId -> ctx
 
 // Function to generate proactive analysis
-function generateProactiveAnalysis(context: any): string {
+async function generateProactiveAnalysis(context: any): Promise<string> {
   const rd = context?.realtorDetails
   const nb = context?.neighborhood
   const pc = context?.projectContext
@@ -83,81 +83,293 @@ function generateProactiveAnalysis(context: any): string {
   const hoaFee = rd?.hoa?.fee || pc?.hoaFee
   const status = rd?.status || pc?.status
   const dom = rd?.days_on_market
+  const yearBuilt = rd?.year_built
+  const propertyType = rd?.description?.type || pc?.propertyType
+  const latitude = rd?.location?.address?.coordinate?.lat || pc?.latitude
+  const longitude = rd?.location?.address?.coordinate?.lng || pc?.longitude
+  
+  // Debug logging
+  console.log('Property data extracted:', {
+    address,
+    listPrice,
+    beds,
+    baths,
+    sqft,
+    hoaFee,
+    propertyType,
+    yearBuilt,
+    latitude,
+    longitude
+  });
   
   // Calculate key metrics
   const ppsf = listPrice && sqft ? Math.round(listPrice / sqft) : null
   const totalMonthlyCost = listPrice ? Math.round((listPrice * 0.08 / 12) + (hoaFee || 0)) : null
+  const propertyAge = yearBuilt ? new Date().getFullYear() - yearBuilt : null
   
-  // Generate insights
-  const insights = []
-  
-  // Investment Score (mock calculation based on available data)
-  let investmentScore = 6
-  if (ppsf && ppsf < 400) investmentScore += 1
-  if (dom && dom > 30) investmentScore -= 1
-  if (hoaFee && hoaFee < 200) investmentScore += 1
-  if (beds && beds >= 3) investmentScore += 1
-  
-  insights.push(`📈 **Investment Score: ${investmentScore}/10**`)
+  // Generate market comparison insights
+  const marketInsights = []
   if (ppsf) {
-    insights.push(`   • Price per sqft: $${ppsf} (${ppsf < 400 ? 'competitive' : ppsf < 600 ? 'moderate' : 'premium'} for the area)`)
+    const marketPosition = ppsf < 400 ? 'below market average' : 
+                          ppsf < 600 ? 'at market average' : 
+                          'above market average'
+    marketInsights.push(`Priced ${marketPosition} for ${city || 'the area'}`)
   }
+  
   if (dom !== undefined) {
-    insights.push(`   • Days on market: ${dom} (${dom < 30 ? 'fast-moving' : dom < 60 ? 'normal pace' : 'slow market'})`)
+    const marketPace = dom < 15 ? 'fast-moving market' : 
+                      dom < 45 ? 'normal market pace' : 
+                      'slow market with negotiation potential'
+    marketInsights.push(`Currently in a ${marketPace}`)
   }
   
-  // Price Analysis
-  insights.push(`\n⚖️ **Price Analysis**`)
-  if (listPrice) {
-    const priceFormatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(listPrice)
-    insights.push(`   • Listed at ${priceFormatted}`)
-    if (ppsf) {
-      insights.push(`   • Price per sqft: $${ppsf}`)
-    }
-    if (totalMonthlyCost) {
-      insights.push(`   • Estimated monthly cost: $${totalMonthlyCost.toLocaleString()}`)
-    }
+  // Generate lifestyle analysis from existing neighborhood data
+  const lifestyleInsights = []
+  if (nb?.walkability_score) {
+    const walkability = nb.walkability_score > 90 ? 'excellent' : 
+                       nb.walkability_score > 70 ? 'very good' : 
+                       nb.walkability_score > 50 ? 'good' : 'limited'
+    lifestyleInsights.push(`Walk Score: ${nb.walkability_score} (${walkability} walkability)`)
   }
   
-  // Lifestyle Match
-  insights.push(`\n🚶‍♂️ **Lifestyle Match**`)
   if (nb?.cafes?.length > 0) {
-    insights.push(`   • ${nb.cafes.length} cafes nearby: ${nb.cafes.slice(0, 2).join(', ')}`)
+    lifestyleInsights.push(`${nb.cafes.length} cafes within walking distance`)
   }
   if (nb?.parks?.length > 0) {
-    insights.push(`   • ${nb.parks.length} parks within walking distance`)
+    lifestyleInsights.push(`${nb.parks.length} parks nearby for outdoor activities`)
   }
   if (nb?.schools?.length > 0) {
-    insights.push(`   • ${nb.schools.length} schools nearby`)
-  }
-  if (nb?.transport?.length > 0) {
-    insights.push(`   • Public transport: ${nb.transport.slice(0, 2).join(', ')}`)
+    lifestyleInsights.push(`${nb.schools.length} schools in the area`)
   }
   
-  // Property Features
-  if (beds || baths || sqft) {
-    insights.push(`\n🏠 **Property Features**`)
-    if (beds) insights.push(`   • ${beds} bedroom${beds !== 1 ? 's' : ''}`)
-    if (baths) insights.push(`   • ${baths} bathroom${baths !== 1 ? 's' : ''}`)
-    if (sqft) insights.push(`   • ${sqft.toLocaleString()} sqft`)
-    if (hoaFee) insights.push(`   • HOA: $${hoaFee}/month`)
+  // Fetch rental analysis from yield API
+  let rentalInsights = []
+  let neighborhoodInsights = []
+  
+  try {
+    // Use 0 as default HOA fee if not provided
+    const hoaFeeValue = hoaFee !== undefined ? hoaFee : 0;
+    
+    if (listPrice && (address || (latitude && longitude))) {
+      console.log('Calling yield API with:', {
+        address,
+        latitude,
+        longitude,
+        propertyPrice: listPrice,
+        hoaFees: hoaFeeValue,
+        beds,
+        baths,
+        sqft,
+        propertyType,
+        yearBuilt
+      });
+      
+      const yieldResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/yield`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address: address,
+          latitude: latitude,
+          longitude: longitude,
+          propertyPrice: listPrice,
+          hoaFees: hoaFeeValue,
+          beds: beds,
+          baths: baths,
+          sqft: sqft,
+          propertyType: propertyType,
+          yearBuilt: yearBuilt
+        })
+      })
+      
+      console.log('Yield API response status:', yieldResponse.status);
+      
+      if (yieldResponse.ok) {
+        const yieldData = await yieldResponse.json()
+        console.log('Yield API response data:', yieldData);
+        rentalInsights.push(`Estimated monthly rent: $${yieldData.estimatedMonthlyRent?.toLocaleString() || 'N/A'}`)
+        rentalInsights.push(`Annual rental income: $${yieldData.annualRentalIncome?.toLocaleString() || 'N/A'}`)
+        rentalInsights.push(`Cap rate: ${yieldData.capRate?.toFixed(2) || 'N/A'}%`)
+        rentalInsights.push(`Net operating income: $${yieldData.netOperatingIncome?.toLocaleString() || 'N/A'}/year`)
+        console.log('Rental insights generated:', rentalInsights);
+      } else {
+        const errorText = await yieldResponse.text();
+        console.log('Yield API error response:', errorText);
+        console.log('Yield API error status:', yieldResponse.status);
+      }
+    } else {
+      console.log('Skipping yield API call - missing required data:', {
+        listPrice,
+        address,
+        latitude,
+        longitude
+      });
+    }
+  } catch (error) {
+    console.log('Error fetching yield data:', error)
   }
   
-  // Market Position
-  if (status || dom !== undefined) {
-    insights.push(`\n📊 **Market Position**`)
-    if (status) insights.push(`   • Status: ${status}`)
-    if (dom !== undefined) {
-      const marketPosition = dom < 15 ? 'Hot market - act fast!' : 
-                           dom < 45 ? 'Normal market pace' : 
-                           'Slow market - negotiation opportunity'
-      insights.push(`   • ${marketPosition}`)
+  // Fetch neighborhood reviews
+  try {
+    if (address || (latitude && longitude)) {
+      const reviewsResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001'}/api/reviews`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: address,
+          latitude: latitude,
+          longitude: longitude,
+          radius: 3
+        })
+      })
+      
+      if (reviewsResponse.ok) {
+        const reviewsData = await reviewsResponse.json()
+        if (reviewsData.summary) {
+          neighborhoodInsights.push(`Community feedback: ${reviewsData.summary}`)
+          if (reviewsData.averageRating) {
+            neighborhoodInsights.push(`Average local rating: ${reviewsData.averageRating}/5`)
+          }
+          if (reviewsData.reviewCount) {
+            neighborhoodInsights.push(`Based on ${reviewsData.reviewCount} reviews from ${reviewsData.placesReviewed || 1} local establishments`)
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.log('Error fetching reviews data:', error)
+  }
+  
+  // Build the comprehensive analysis
+  const analysis = `Hi! I've analyzed ${address}${city ? ` in ${city}` : ''}. Here's my comprehensive assessment:
+
+⚖️ **Price Analysis**
+   • Listed at ${listPrice ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(listPrice) : 'Price not available'}
+   ${ppsf ? `• Price per sqft: $${ppsf}` : ''}
+   ${totalMonthlyCost ? `• Estimated monthly cost: $${totalMonthlyCost.toLocaleString()}` : ''}
+   ${marketInsights.length > 0 ? `• ${marketInsights.join(', ')}` : ''}
+
+🚶‍♂️ **Lifestyle Match**
+   ${lifestyleInsights.length > 0 ? lifestyleInsights.map(insight => `   • ${insight}`).join('\n') : '   • Neighborhood data not available'}
+
+🏠 **Property Features**
+   ${beds ? `   • ${beds} bedroom${beds !== 1 ? 's' : ''}` : ''}
+   ${baths ? `   • ${baths} bathroom${baths !== 1 ? 's' : ''}` : ''}
+   ${sqft ? `   • ${sqft.toLocaleString()} sqft` : ''}
+   ${hoaFee ? `   • HOA: $${hoaFee}/month` : ''}
+   ${propertyAge ? `   • Built in ${yearBuilt} (${propertyAge} years old)` : ''}
+   ${propertyType ? `   • Property type: ${propertyType}` : ''}
+
+📊 **Market Position**
+   ${status ? `   • Status: ${status}` : ''}
+   ${dom !== undefined ? `   • Days on market: ${dom}` : ''}
+   ${dom !== undefined ? `   • ${dom < 15 ? 'Hot market - act fast!' : dom < 45 ? 'Normal market pace' : 'Slow market - negotiation opportunity'}` : ''}
+
+💰 **Rental Potential**
+   ${rentalInsights.length > 0 ? rentalInsights.map(insight => `   • ${insight}`).join('\n') : '   • Rental analysis not available'}
+
+🏘️ **Neighborhood Insights**
+   ${neighborhoodInsights.length > 0 ? neighborhoodInsights.map(insight => `   • ${insight}`).join('\n') : '   • Neighborhood reviews not available'}
+
+What would you like to explore in more detail? I can help with:
+• Detailed market comparison and pricing analysis
+• Neighborhood reviews and local insights  
+• Investment calculations and rental yield
+• Negotiation strategy and offer recommendations
+• Commute analysis and lifestyle scenarios`
+  
+  return analysis
+}
+
+// Function to calculate investment score
+function calculateInvestmentScore(context: any): { score: number; reasoning: string[] } {
+  const rd = context?.realtorDetails
+  const nb = context?.neighborhood
+  const pc = context?.projectContext
+  
+  // Extract property data
+  const listPrice = rd?.list_price || pc?.price
+  const beds = rd?.description?.beds || pc?.beds
+  const baths = rd?.description?.baths || pc?.baths
+  const sqft = rd?.building_size?.size
+  const hoaFee = rd?.hoa?.fee || pc?.hoaFee
+  const dom = rd?.days_on_market
+  const yearBuilt = rd?.year_built
+  const propertyType = rd?.description?.type || pc?.propertyType
+  
+  // Calculate key metrics
+  const ppsf = listPrice && sqft ? Math.round(listPrice / sqft) : null
+  const propertyAge = yearBuilt ? new Date().getFullYear() - yearBuilt : null
+  
+  // Generate sophisticated investment score
+  let investmentScore = 5
+  let reasoning = []
+  
+  // Price competitiveness (40% weight)
+  if (ppsf) {
+    if (ppsf < 300) {
+      investmentScore += 2
+      reasoning.push("Excellent price per sqft")
+    } else if (ppsf < 500) {
+      investmentScore += 1
+      reasoning.push("Competitive pricing")
+    } else if (ppsf > 800) {
+      investmentScore -= 1
+      reasoning.push("Premium pricing")
     }
   }
   
-  const analysis = `Hi! I've analyzed ${address}${city ? ` in ${city}` : ''}. Here's my initial assessment:\n\n${insights.join('\n')}\n\nWhat would you like to explore in more detail?`
+  // Market timing (25% weight)
+    if (dom !== undefined) {
+    if (dom < 15) {
+      investmentScore += 1
+      reasoning.push("Hot market - high demand")
+    } else if (dom > 60) {
+      investmentScore -= 1
+      reasoning.push("Slow market - negotiation opportunity")
+    }
+  }
   
-  return analysis
+  // Property fundamentals (20% weight)
+  if (beds && beds >= 3) {
+    investmentScore += 1
+    reasoning.push("Family-friendly layout")
+  } else if (beds && beds === 1) {
+    investmentScore -= 1
+    reasoning.push("Single bedroom limits rental appeal")
+  }
+  if (propertyAge && propertyAge < 10) {
+    investmentScore += 1
+    reasoning.push("Modern construction")
+  } else if (propertyAge && propertyAge > 30) {
+    investmentScore -= 1
+    reasoning.push("Older property - consider maintenance")
+  }
+  
+  // Location premium (15% weight)
+  if (nb?.walkability_score && nb.walkability_score > 80) {
+    investmentScore += 1
+    reasoning.push("Excellent walkability")
+  }
+  if (nb?.schools?.length > 0) {
+    investmentScore += 0.5
+    reasoning.push("Good school district")
+  }
+  
+  // HOA impact
+  if (hoaFee) {
+    if (hoaFee < 200) {
+      investmentScore += 0.5
+      reasoning.push("Low HOA fees")
+    } else if (hoaFee > 500) {
+      investmentScore -= 1
+      reasoning.push("High HOA fees")
+    }
+  }
+  
+  // Cap investment score between 1-10
+  investmentScore = Math.max(1, Math.min(10, Math.round(investmentScore)))
+  
+  return { score: investmentScore, reasoning }
 }
 
 // Function to detect if the message is about property negotiation
@@ -238,6 +450,59 @@ function isLocalityReviewQuery(message: string): boolean {
          lower.includes('area reputation') ||
          lower.includes('local reputation') ||
          lower.includes('community reputation')
+}
+
+function isLifestyleQuery(message: string): boolean {
+  const lower = message.toLowerCase()
+  return lower.includes('commute') || 
+         lower.includes('commute time') || 
+         lower.includes('how far to work') ||
+         lower.includes('travel time') ||
+         lower.includes('driving distance') ||
+         lower.includes('public transport') ||
+         lower.includes('metro') ||
+         lower.includes('bus') ||
+         lower.includes('train') ||
+         lower.includes('transit') ||
+         lower.includes('transportation') ||
+         lower.includes('lifestyle') ||
+         lower.includes('day in the life') ||
+         lower.includes('daily life') ||
+         lower.includes('what\'s it like') ||
+         lower.includes('walking distance') ||
+         lower.includes('nearby') ||
+         lower.includes('close to') ||
+         lower.includes('convenient') ||
+         lower.includes('accessibility') ||
+         lower.includes('restaurants') ||
+         lower.includes('shopping') ||
+         lower.includes('entertainment') ||
+         lower.includes('nightlife') ||
+         lower.includes('activities') ||
+         lower.includes('family friendly') ||
+         lower.includes('pet friendly') ||
+         lower.includes('safe') ||
+         lower.includes('quiet') ||
+         lower.includes('noisy') ||
+         lower.includes('parking')
+}
+
+function isInvestmentScoreQuery(message: string): boolean {
+  const lower = message.toLowerCase()
+  return lower.includes('investment score') || 
+         lower.includes('investment rating') || 
+         lower.includes('investment potential') ||
+         lower.includes('investment grade') ||
+         lower.includes('how good is this investment') ||
+         lower.includes('investment analysis') ||
+         lower.includes('investment evaluation') ||
+         lower.includes('score this property') ||
+         lower.includes('rate this property') ||
+         lower.includes('property score') ||
+         lower.includes('investment value') ||
+         lower.includes('is this a good investment') ||
+         lower.includes('investment quality') ||
+         lower.includes('investment assessment')
 }
 
 
@@ -728,17 +993,19 @@ ${neighborhood ? `
     const isNegotiation = isNegotiationQuery(message, !!projectId)
     const isYield = isYieldQuery(message)
     const isReview = isLocalityReviewQuery(message)
+    const isLifestyle = isLifestyleQuery(message)
+    const isInvestmentScore = isInvestmentScoreQuery(message)
     wasNegotiation = isNegotiation
     
     // Use a compact negotiation prompt to reduce token pressure
     const selectedPrompt = isNegotiation ? NEGOTIATION_AGENT_PROMPT_COMPACT : CHAT_SYSTEM_PROMPT
 
-    console.log(`[ChatAPI] Starting chat completion for ${isProactiveAnalysis ? 'proactive analysis' : isNegotiation ? 'negotiation' : isYield ? 'yield' : isReview ? 'review' : 'general'} query`)
+    console.log(`[ChatAPI] Starting chat completion for ${isProactiveAnalysis ? 'proactive analysis' : isNegotiation ? 'negotiation' : isYield ? 'yield' : isReview ? 'review' : isLifestyle ? 'lifestyle' : isInvestmentScore ? 'investment score' : 'general'} query`)
     const startTime = Date.now()
     
     // Handle proactive analysis with special prompt
     if (isProactiveAnalysis) {
-      const proactiveAnalysis = generateProactiveAnalysis(compactedContext)
+      const proactiveAnalysis = await generateProactiveAnalysis(compactedContext)
       return NextResponse.json({ 
         success: true, 
         data: { 
@@ -775,6 +1042,81 @@ ${assembledContext?.neighborhood ? `
         data: {
           action: 'reply',
           content: reviewContent
+        }
+      })
+    }
+    
+    // Handle lifestyle queries - if we have neighborhood data, return comprehensive lifestyle analysis
+    if (isLifestyle && assembledContext?.neighborhood) {
+      const nb = assembledContext.neighborhood
+      console.log(`[ChatAPI] Including lifestyle analysis with neighborhood data:`, nb)
+      
+      const lifestyleContent = `🚶‍♂️ **Lifestyle Analysis for This Neighborhood**
+
+**Walkability & Transportation:**
+${nb.walkability_score ? `• Walk Score: ${nb.walkability_score} (${nb.walkability_score > 90 ? 'excellent' : nb.walkability_score > 70 ? 'very good' : nb.walkability_score > 50 ? 'good' : 'limited'} walkability)` : '• Walkability data not available'}
+${nb.transport?.length ? `• Public transport: ${nb.transport.slice(0, 3).join(', ')}` : '• Public transport data not available'}
+
+**Local Amenities:**
+${nb.cafes?.length ? `• ${nb.cafes.length} cafes nearby: ${nb.cafes.slice(0, 3).join(', ')}` : '• Cafe data not available'}
+${nb.parks?.length ? `• ${nb.parks.length} parks within walking distance: ${nb.parks.slice(0, 3).join(', ')}` : '• Park data not available'}
+${nb.schools?.length ? `• ${nb.schools.length} schools in the area: ${nb.schools.slice(0, 3).join(', ')}` : '• School data not available'}
+
+**Daily Life Scenarios:**
+• **Morning routine:** Start your day with a ${nb.cafes?.length ? '2-3 minute walk to nearby cafes' : 'short walk to local amenities'} for your morning coffee
+• **Commute options:** ${nb.transport?.length ? 'Multiple public transport options within 5 minutes' : 'Public transport access varies by location'}
+• **Evening activities:** ${nb.parks?.length ? 'Enjoy evening walks in nearby parks' : 'Explore local neighborhood amenities'}
+• **Weekend lifestyle:** ${nb.parks?.length && nb.cafes?.length ? 'Perfect for leisurely weekend activities with parks and cafes nearby' : 'Great for exploring local neighborhood features'}
+
+**Neighborhood Character:**
+• **Safety:** ${nb.crime_rate ? `Crime rate: ${nb.crime_rate}` : 'Safety data not available'}
+• **Community feel:** ${nb.walkability_score && nb.walkability_score > 70 ? 'Highly walkable area with strong community connections' : 'Neighborhood character varies by specific location'}
+
+💡 **Pro Tip:** This area offers a great balance of urban convenience and neighborhood charm, perfect for those who value walkability and local amenities.`
+
+      return NextResponse.json({ 
+        success: true, 
+        data: {
+          action: 'reply',
+          content: lifestyleContent
+        }
+      })
+    }
+    
+    // Handle investment score queries
+    if (isInvestmentScore && projectId) {
+      const { score, reasoning } = calculateInvestmentScore(compactedContext)
+      const rd = compactedContext?.realtorDetails
+      const listPrice = rd?.list_price
+      const ppsf = listPrice && rd?.building_size?.size ? Math.round(listPrice / rd.building_size.size) : null
+      const hoaFee = rd?.hoa?.fee
+      const dom = rd?.days_on_market
+      const beds = rd?.description?.beds
+      
+      const investmentContent = `📈 **Investment Score: ${score}/10**
+
+**Analysis Breakdown:**
+${reasoning.map(r => `• ${r}`).join('\n')}
+
+**Key Metrics:**
+${ppsf ? `• Price per sqft: $${ppsf}` : ''}
+${hoaFee ? `• HOA fees: $${hoaFee}/month` : ''}
+${dom !== undefined ? `• Days on market: ${dom}` : ''}
+${beds ? `• Bedrooms: ${beds}` : ''}
+
+**Investment Recommendation:**
+${score >= 8 ? 'Excellent investment opportunity with strong fundamentals' : 
+  score >= 6 ? 'Good investment with some considerations' : 
+  score >= 4 ? 'Moderate investment - consider carefully' : 
+  'Challenging investment - significant concerns'}
+
+${score < 6 ? '**Key Concerns:** Consider the factors mentioned above before proceeding with this investment.' : ''}`
+
+      return NextResponse.json({ 
+        success: true, 
+        data: {
+          action: 'reply',
+          content: investmentContent
         }
       })
     }

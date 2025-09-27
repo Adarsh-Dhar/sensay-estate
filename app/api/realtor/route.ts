@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || process.env.REALTOR_RAPIDAPI_KEY || '';
+console.log('RAPIDAPI_KEY', RAPIDAPI_KEY);
 const REALTOR_API_HOST = 'realtor-data1.p.rapidapi.com';
 const REALTOR_API_URL = `https://${REALTOR_API_HOST}/property_list/`;
 const REALTOR_DETAILS_URL = (pid: string) => `https://${REALTOR_API_HOST}/properties_details/?property_id=${encodeURIComponent(pid)}`;
