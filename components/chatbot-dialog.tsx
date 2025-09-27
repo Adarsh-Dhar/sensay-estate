@@ -51,6 +51,30 @@ function extractAssistantText(data: any): string {
   }
 }
 
+function isSearchResponse(data: any): boolean {
+  try {
+    const parsed = typeof data === 'string' ? JSON.parse(data) : data
+    return parsed?.action === 'search' && parsed?.redirect_url
+  } catch {
+    return false
+  }
+}
+
+function getSearchResponseData(data: any): { redirectUrl: string; location?: string } | null {
+  try {
+    const parsed = typeof data === 'string' ? JSON.parse(data) : data
+    if (parsed?.action === 'search' && parsed?.redirect_url) {
+      return {
+        redirectUrl: parsed.redirect_url,
+        location: parsed.filters?.location
+      }
+    }
+  } catch {
+    // Not a valid search response
+  }
+  return null
+}
+
 export function ChatbotDialog({
   open,
   onOpenChange,
@@ -166,20 +190,42 @@ export function ChatbotDialog({
                   </div>
                 ) : (
                   <div className="flex flex-col gap-4">
-                    {messages.map((m) => (
-                      <div key={m.id} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}> 
-                        <div
-                          className={cn(
-                            "max-w-[80%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm",
-                            m.role === "user"
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted"
+                    {messages.map((m) => {
+                      const isSearch = m.role === "assistant" && isSearchResponse(m.content)
+                      const searchData = isSearch ? getSearchResponseData(m.content) : null
+                      
+                      return (
+                        <div key={m.id} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}> 
+                          {isSearch && searchData ? (
+                            <div className="max-w-[80%] rounded-lg bg-muted p-3">
+                              <p className="text-sm text-muted-foreground mb-3">
+                                {searchData.location 
+                                  ? `Found properties near ${searchData.location}`
+                                  : "Found properties matching your search"
+                                }
+                              </p>
+                              <Button 
+                                onClick={() => window.location.href = searchData.redirectUrl}
+                                className="w-full"
+                              >
+                                View Properties
+                              </Button>
+                            </div>
+                          ) : (
+                            <div
+                              className={cn(
+                                "max-w-[80%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm",
+                                m.role === "user"
+                                  ? "bg-primary text-primary-foreground"
+                                  : "bg-muted"
+                              )}
+                            >
+                              {m.content}
+                            </div>
                           )}
-                        >
-                          {m.content}
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                     {sending ? (
                       <div className="flex justify-start">
                         <div className="bg-muted text-muted-foreground max-w-[80%] rounded-lg px-3 py-2 text-sm">
