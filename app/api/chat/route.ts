@@ -205,6 +205,41 @@ function isYieldQuery(message: string): boolean {
          lower.includes('rental income potential')
 }
 
+function isLocalityReviewQuery(message: string): boolean {
+  const lower = message.toLowerCase()
+  return lower.includes('what do people say') ||
+         lower.includes('reviews about') ||
+         lower.includes('living here') ||
+         lower.includes('neighborhood reviews') ||
+         lower.includes('area reviews') ||
+         lower.includes('local reviews') ||
+         lower.includes('community reviews') ||
+         lower.includes('residents say') ||
+         lower.includes('people think') ||
+         lower.includes('neighborhood feedback') ||
+         lower.includes('area feedback') ||
+         lower.includes('local feedback') ||
+         lower.includes('community feedback') ||
+         lower.includes('what\'s it like living') ||
+         lower.includes('how is it living') ||
+         lower.includes('neighborhood experience') ||
+         lower.includes('area experience') ||
+         lower.includes('local experience') ||
+         lower.includes('community experience') ||
+         lower.includes('neighborhood opinion') ||
+         lower.includes('area opinion') ||
+         lower.includes('local opinion') ||
+         lower.includes('community opinion') ||
+         lower.includes('neighborhood sentiment') ||
+         lower.includes('area sentiment') ||
+         lower.includes('local sentiment') ||
+         lower.includes('community sentiment') ||
+         lower.includes('neighborhood reputation') ||
+         lower.includes('area reputation') ||
+         lower.includes('local reputation') ||
+         lower.includes('community reputation')
+}
+
 
 type SensayClientHeaders = {
   'Content-Type': 'application/json'
@@ -528,6 +563,87 @@ ${capRateEvaluation} - Cap rates above 5% are generally considered good for rent
         }
       }
 
+      // Fetch locality reviews if this is a review-related query
+      let reviewData = null
+      const isReview = isLocalityReviewQuery(message)
+      console.log(`[ChatAPI] Review query detection: "${message}" -> ${isReview}`)
+      
+      if (isReview) {
+        try {
+          // Extract locality name from property data or use coordinates
+          let localityQuery = ''
+          if (realtorDetails) {
+            const address = realtorDetails?.location?.address?.line || realtorDetails?.data?.home?.location?.address?.line
+            const city = realtorDetails?.location?.address?.city || realtorDetails?.data?.home?.location?.address?.city
+            const state = realtorDetails?.location?.address?.state_code || realtorDetails?.data?.home?.location?.address?.state_code
+            localityQuery = [address, city, state].filter(Boolean).join(', ')
+          } else if (typeof lat === 'number' && typeof lon === 'number') {
+            // Use coordinates to get locality name via reverse geocoding
+            const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lon}&key=${process.env.GOOGLE_MAPS_API_KEY}`
+            const geocodeRes = await fetch(geocodeUrl)
+            if (geocodeRes.ok) {
+              const geocodeData = await geocodeRes.json()
+              if (geocodeData.results && geocodeData.results.length > 0) {
+                const result = geocodeData.results[0]
+                localityQuery = result.formatted_address || result.address_components?.find((c: any) => c.types.includes('locality'))?.long_name || 'this area'
+              }
+            }
+          }
+          
+          if (localityQuery) {
+            console.log(`[ChatAPI] Fetching reviews for locality: ${localityQuery}`)
+            
+            const reviewRes = await fetch(`${origin}/api/reviews`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                query: localityQuery,
+                latitude: lat,
+                longitude: lon,
+                radius: 3
+              }),
+            })
+            
+            if (reviewRes.ok) {
+              reviewData = await reviewRes.json()
+              console.log(`[ChatAPI] Review data fetched:`, reviewData)
+              
+              // Return review analysis directly instead of passing to LLM
+              const reviewContent = `🏘️ **Neighborhood Reviews for ${reviewData.source || localityQuery}**
+
+${reviewData.summary || 'No reviews available for this area.'}
+
+${reviewData.reviewCount ? `📊 Based on ${reviewData.reviewCount} reviews from ${reviewData.placesReviewed || 1} local establishments` : ''}
+${reviewData.averageRating ? `⭐ Average rating: ${reviewData.averageRating}/5` : ''}
+
+💡 **Local Insights:**
+${neighborhood ? `
+• **Cafes nearby:** ${neighborhood.cafes?.length ? neighborhood.cafes.slice(0, 3).join(', ') : 'None found'}
+• **Parks nearby:** ${neighborhood.parks?.length ? neighborhood.parks.slice(0, 3).join(', ') : 'None found'}
+• **Schools nearby:** ${neighborhood.schools?.length ? neighborhood.schools.slice(0, 3).join(', ') : 'None found'}
+• **Public transport:** ${neighborhood.transport?.length ? neighborhood.transport.slice(0, 2).join(', ') : 'None found'}
+` : 'Additional neighborhood data not available'}
+
+📍 **Search Radius:** 3 miles from property location`
+
+              return NextResponse.json({ 
+                success: true, 
+                data: {
+                  action: 'reply',
+                  content: reviewContent
+                }
+              })
+            } else {
+              console.error('[ChatAPI] Review API error:', reviewRes.status, reviewRes.statusText)
+            }
+          } else {
+            console.log('[ChatAPI] No locality information available for review query')
+          }
+        } catch (error) {
+          console.error('[ChatAPI] Error fetching review data:', error)
+        }
+      }
+
       if (hasProjectId) {
         projectCache.set(projectId!, { realtorDetails, neighborhood, ts: now })
       }
@@ -538,6 +654,7 @@ ${capRateEvaluation} - Cap rates above 5% are generally considered good for rent
         realtorDetails: realtorDetails ?? null,
         neighborhood: neighborhood ?? null,
         yieldData: yieldData ?? null,
+        reviewData: reviewData ?? null,
       }
     } catch (_) {
       // Non-fatal; continue without extra context
@@ -551,6 +668,7 @@ ${capRateEvaluation} - Cap rates above 5% are generally considered good for rent
           realtorDetails: compactRealtorDetails(assembledContext.realtorDetails),
           neighborhood: compactNeighborhood(assembledContext.neighborhood),
           yieldData: assembledContext.yieldData ?? null,
+          reviewData: assembledContext.reviewData ?? null,
         }
       : null
 
@@ -560,6 +678,7 @@ ${capRateEvaluation} - Cap rates above 5% are generally considered good for rent
       const rd = compactedContext.realtorDetails as any
       const nb = compactedContext.neighborhood as any
       const yd = compactedContext.yieldData as any
+      const rv = compactedContext.reviewData as any
       const addressLine = rd?.location?.address?.line
       const city = rd?.location?.address?.city
       const state = rd?.location?.address?.state_code
@@ -587,6 +706,8 @@ ${capRateEvaluation} - Cap rates above 5% are generally considered good for rent
       const parts = [
         // Add yield data first if available (highest priority)
         yd && `RENTAL_YIELD_DATA: cap_rate: ${yd.capRate}%, monthly_rent: $${yd.estimatedMonthlyRent}, annual_income: $${yd.annualRentalIncome}, net_income: $${yd.netOperatingIncome}, annual_costs: $${yd.annualCosts}`,
+        // Add review data if available
+        rv && `NEIGHBORHOOD_REVIEWS: ${rv.summary} (${rv.reviewCount} reviews)`,
         addressLine && `${addressLine}${city ? ', ' + city : ''}${state ? ', ' + state : ''}${postal ? ' ' + postal : ''}`,
         typeof listPrice === 'number' && `list_price: $${listPrice}`,
         (beds || beds === 0) && (baths || baths === 0) && `beds/baths: ${beds}/${baths}`,
@@ -606,12 +727,13 @@ ${capRateEvaluation} - Cap rates above 5% are generally considered good for rent
     const isProactiveAnalysis = message === "PROACTIVE_ANALYSIS" && !!projectId
     const isNegotiation = isNegotiationQuery(message, !!projectId)
     const isYield = isYieldQuery(message)
+    const isReview = isLocalityReviewQuery(message)
     wasNegotiation = isNegotiation
     
     // Use a compact negotiation prompt to reduce token pressure
     const selectedPrompt = isNegotiation ? NEGOTIATION_AGENT_PROMPT_COMPACT : CHAT_SYSTEM_PROMPT
 
-    console.log(`[ChatAPI] Starting chat completion for ${isProactiveAnalysis ? 'proactive analysis' : isNegotiation ? 'negotiation' : 'general'} query`)
+    console.log(`[ChatAPI] Starting chat completion for ${isProactiveAnalysis ? 'proactive analysis' : isNegotiation ? 'negotiation' : isYield ? 'yield' : isReview ? 'review' : 'general'} query`)
     const startTime = Date.now()
     
     // Handle proactive analysis with special prompt
@@ -626,6 +748,37 @@ ${capRateEvaluation} - Cap rates above 5% are generally considered good for rent
       })
     }
     
+    // Handle review queries - if we have review data, return it directly
+    if (isReview && assembledContext?.reviewData) {
+      const rd = assembledContext.reviewData as any
+      console.log(`[ChatAPI] Including review data in response:`, rd)
+      
+      const reviewContent = `🏘️ **Neighborhood Reviews for ${rd.source || 'this area'}**
+
+${rd.summary || 'No reviews available for this area.'}
+
+${rd.reviewCount ? `📊 Based on ${rd.reviewCount} reviews from ${rd.placesReviewed || 1} local establishments` : ''}
+${rd.averageRating ? `⭐ Average rating: ${rd.averageRating}/5` : ''}
+
+💡 **Local Insights:**
+${assembledContext?.neighborhood ? `
+• **Cafes nearby:** ${assembledContext.neighborhood.cafes?.length ? assembledContext.neighborhood.cafes.slice(0, 3).join(', ') : 'None found'}
+• **Parks nearby:** ${assembledContext.neighborhood.parks?.length ? assembledContext.neighborhood.parks.slice(0, 3).join(', ') : 'None found'}
+• **Schools nearby:** ${assembledContext.neighborhood.schools?.length ? assembledContext.neighborhood.schools.slice(0, 3).join(', ') : 'None found'}
+• **Public transport:** ${assembledContext.neighborhood.transport?.length ? assembledContext.neighborhood.transport.slice(0, 2).join(', ') : 'None found'}
+` : 'Additional neighborhood data not available'}
+
+📍 **Search Radius:** 3 miles from property location`
+
+      return NextResponse.json({ 
+        success: true, 
+        data: {
+          action: 'reply',
+          content: reviewContent
+        }
+      })
+    }
+    
     // If this is a yield query and we have yield data, include it directly in the prompt
     let yieldDataText = ''
     if (isYield && assembledContext?.yieldData) {
@@ -637,10 +790,22 @@ RENTAL_YIELD_DATA: cap_rate: ${yd.capRate}%, monthly_rent: $${yd.estimatedMonthl
 You MUST use this data to provide a detailed analysis instead of returning a calculate_yield action. Return {"action": "reply", "content": "Your detailed analysis here"}`
     }
 
+    // If this is a review query and we have review data, include it in the prompt
+    let reviewDataText = ''
+    if (isReview && assembledContext?.reviewData) {
+      const rd = assembledContext.reviewData as any
+      console.log(`[ChatAPI] Including review data in prompt:`, rd)
+      reviewDataText = `\n\nCRITICAL: The user is asking about neighborhood reviews. Here is the actual review data for this area:
+NEIGHBORHOOD_REVIEWS: ${rd.summary} (${rd.reviewCount} reviews from ${rd.placesReviewed} places, avg rating: ${rd.averageRating}/5)
+
+You MUST use this data to provide a detailed analysis instead of returning a get_reviews action. Return {"action": "reply", "content": "Your detailed analysis here"}`
+    }
+
     const rawContent = [
       selectedPrompt,
       minimalContextText ? `Context: ${minimalContextText}` : undefined,
       yieldDataText,
+      reviewDataText,
       `User: ${message}`,
     ].filter(Boolean).join('\n\n')
 
