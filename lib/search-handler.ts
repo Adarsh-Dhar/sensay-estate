@@ -4,8 +4,6 @@ export interface SearchRequest {
   action: "search"
   filters: {
     location?: string | null
-    rent_max?: number | null
-    rent_min?: number | null
     price_max?: number | null
     price_min?: number | null
     beds_min?: number | null
@@ -81,12 +79,12 @@ export function parseSearchRequest(request: SearchRequest): {
     }
   }
 
-  // Price filters (rent or sale price)
-  if (requestFilters.rent_min || requestFilters.price_min) {
-    filters.minPrice = requestFilters.rent_min || requestFilters.price_min || undefined
+  // Price filters (sale price only)
+  if (requestFilters.price_min) {
+    filters.minPrice = requestFilters.price_min
   }
-  if (requestFilters.rent_max || requestFilters.price_max) {
-    filters.maxPrice = requestFilters.rent_max || requestFilters.price_max || undefined
+  if (requestFilters.price_max) {
+    filters.maxPrice = requestFilters.price_max
   }
 
   // Property details
@@ -151,10 +149,10 @@ export function createSearchUrl(filters: PropertyFilters, searchLocation?: { loc
   // Add filters
   if (filters.minPrice) params.set('minPrice', filters.minPrice.toString())
   if (filters.maxPrice) params.set('maxPrice', filters.maxPrice.toString())
-  if (filters.minBeds) params.set('minBeds', filters.minBeds.toString())
-  if (filters.maxBeds) params.set('maxBeds', filters.maxBeds.toString())
-  if (filters.minBaths) params.set('minBaths', filters.minBaths.toString())
-  if (filters.maxBaths) params.set('maxBaths', filters.maxBaths.toString())
+  if (filters.minBeds) params.set('beds_min', filters.minBeds.toString())
+  if (filters.maxBeds) params.set('beds_max', filters.maxBeds.toString())
+  if (filters.minBaths) params.set('baths_min', filters.minBaths.toString())
+  if (filters.maxBaths) params.set('baths_max', filters.maxBaths.toString())
   if (filters.minSqft) params.set('minSqft', filters.minSqft.toString())
   if (filters.maxSqft) params.set('maxSqft', filters.maxSqft.toString())
   if (filters.minYearBuilt) params.set('minYearBuilt', filters.minYearBuilt.toString())
@@ -211,10 +209,16 @@ export function parseUrlFilters(searchParams: URLSearchParams): {
   // Parse other filters
   if (searchParams.get('minPrice')) filters.minPrice = Number(searchParams.get('minPrice'))
   if (searchParams.get('maxPrice')) filters.maxPrice = Number(searchParams.get('maxPrice'))
+  
+  // Handle both naming conventions for beds and baths
   if (searchParams.get('minBeds')) filters.minBeds = Number(searchParams.get('minBeds'))
+  if (searchParams.get('beds_min')) filters.minBeds = Number(searchParams.get('beds_min'))
   if (searchParams.get('maxBeds')) filters.maxBeds = Number(searchParams.get('maxBeds'))
+  if (searchParams.get('beds_max')) filters.maxBeds = Number(searchParams.get('beds_max'))
   if (searchParams.get('minBaths')) filters.minBaths = Number(searchParams.get('minBaths'))
+  if (searchParams.get('baths_min')) filters.minBaths = Number(searchParams.get('baths_min'))
   if (searchParams.get('maxBaths')) filters.maxBaths = Number(searchParams.get('maxBaths'))
+  if (searchParams.get('baths_max')) filters.maxBaths = Number(searchParams.get('baths_max'))
   if (searchParams.get('minSqft')) filters.minSqft = Number(searchParams.get('minSqft'))
   if (searchParams.get('maxSqft')) filters.maxSqft = Number(searchParams.get('maxSqft'))
   if (searchParams.get('minYearBuilt')) filters.minYearBuilt = Number(searchParams.get('minYearBuilt'))

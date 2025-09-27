@@ -232,7 +232,6 @@ export interface Property {
     photo: {
       href: string
     }
-    rental_management?: any
   }>
   photo_count: number
   photos: Array<{
@@ -298,7 +297,6 @@ export interface Property {
   monthly_fees?: any
   one_time_fees?: any
   units?: any
-  community_rental_floorplans?: any
 }
 
 export interface School {

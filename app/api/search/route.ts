@@ -27,8 +27,6 @@ export async function GET(request: NextRequest) {
     // Parse URL parameters to create search request
     const location = searchParams.get('location')
     const radius = searchParams.get('radius') ? Number(searchParams.get('radius')) : 5
-    const rentMax = searchParams.get('rent_max') ? Number(searchParams.get('rent_max')) : null
-    const rentMin = searchParams.get('rent_min') ? Number(searchParams.get('rent_min')) : null
     const priceMax = searchParams.get('price_max') ? Number(searchParams.get('price_max')) : null
     const priceMin = searchParams.get('price_min') ? Number(searchParams.get('price_min')) : null
     const bedsMin = searchParams.get('beds_min') ? Number(searchParams.get('beds_min')) : null
@@ -48,8 +46,6 @@ export async function GET(request: NextRequest) {
       filters: {
         location,
         radius,
-        rent_max: rentMax,
-        rent_min: rentMin,
         price_max: priceMax,
         price_min: priceMin,
         beds_min: bedsMin,

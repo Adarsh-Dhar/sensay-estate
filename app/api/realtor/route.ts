@@ -174,20 +174,27 @@ export async function POST(req: NextRequest) {
       console.error('Realtor API error (first attempt)', { status: response.status, data });
 
       // Retry once with a minimal, safe payload to improve resilience
+      const originalQuery = (payload as any)?.query || {};
       const minimalQuery = {
-        status: Array.isArray((payload as any)?.query?.status)
-          ? (payload as any).query.status
+        status: Array.isArray(originalQuery?.status)
+          ? originalQuery.status
           : ["for_sale"],
         search_location:
-          (payload as any)?.query?.search_location?.location
-            ? { location: (payload as any).query.search_location.location }
+          originalQuery?.search_location?.location
+            ? { location: originalQuery.search_location.location }
             : { location: "San Francisco, CA" },
+        // Include bedroom and bathroom filters in retry
+        ...(originalQuery?.beds ? { beds: originalQuery.beds } : {}),
+        ...(originalQuery?.baths ? { baths: originalQuery.baths } : {}),
+        ...(originalQuery?.list_price ? { list_price: originalQuery.list_price } : {}),
       };
 
       const minimalPayload = {
         query: minimalQuery,
         limit: typeof (payload as any)?.limit === 'number' ? (payload as any).limit : 12,
       };
+
+      console.log('[RealtorAPI] Retry payload:', safeStringify(minimalPayload));
 
       const retryRes = await fetch(REALTOR_API_URL, {
         method: 'POST',
@@ -199,6 +206,12 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify(minimalPayload),
       });
 
+      console.log('[RealtorAPI] Retry response:', {
+        status: retryRes.status,
+        ok: retryRes.ok,
+        contentType: retryRes.headers.get('content-type'),
+      });
+
       const retryText = await retryRes.text();
       const retryCT = retryRes.headers.get('content-type') || '';
       const retryIsJson = retryCT.includes('application/json');
@@ -207,11 +220,46 @@ export async function POST(req: NextRequest) {
 
       if (!retryRes.ok) {
         console.error('Realtor API error (retry)', { status: retryRes.status, data: retryData });
-        // Return upstream body to help diagnose
-        return NextResponse.json({ error: 'Upstream Realtor API error', details: retryData }, { status: retryRes.status });
-      }
+        
+        // Try one more time with just basic filters (no beds/baths)
+        const basicQuery = {
+          status: ["for_sale"],
+          search_location: { location: "San Francisco, CA" },
+          ...(originalQuery?.list_price ? { list_price: originalQuery.list_price } : {}),
+        };
 
-      data = retryData;
+        const basicPayload = {
+          query: basicQuery,
+          limit: 100,
+        };
+
+        console.log('[RealtorAPI] Basic fallback payload:', safeStringify(basicPayload));
+
+        const basicRes = await fetch(REALTOR_API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-rapidapi-key': RAPIDAPI_KEY,
+            'x-rapidapi-host': REALTOR_API_HOST,
+          },
+          body: JSON.stringify(basicPayload),
+        });
+
+        if (!basicRes.ok) {
+          console.error('Realtor API error (basic fallback)', { status: basicRes.status });
+          return NextResponse.json({ error: 'Upstream Realtor API error', details: retryData }, { status: retryRes.status });
+        }
+
+        const basicText = await basicRes.text();
+        const basicCT = basicRes.headers.get('content-type') || '';
+        const basicIsJson = basicCT.includes('application/json');
+        let basicData: any;
+        try { basicData = basicIsJson ? JSON.parse(basicText) : basicText; } catch { basicData = basicText; }
+
+        data = basicData;
+      } else {
+        data = retryData;
+      }
     }
 
     // Normalize to a predictable array for the client
@@ -260,6 +308,8 @@ export async function POST(req: NextRequest) {
       };
     });
 
+    // Note: If the API doesn't support certain filters (like beds/baths), 
+    // the client-side filtering in MapAndResults will handle the filtering
     return NextResponse.json({ results: normalized });
   } catch (err: any) {
     console.error('Error in /api/realtor:', err);

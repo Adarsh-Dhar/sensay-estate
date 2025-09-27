@@ -87,7 +87,6 @@ const PROPERTY_TYPES = [
 
 const STATUS_OPTIONS = [
   "for_sale",
-  "for_rent",
   "sold",
   "off_market",
   "pending",

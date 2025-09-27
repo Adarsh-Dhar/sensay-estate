@@ -5,6 +5,15 @@ import { PropertyCard } from "./property-card"
 import { useEffect, useMemo, useState } from "react"
 import { Property, PropertyFilters as PropertyFiltersType } from "@/types/property"
 import { convertToRealtorFilters, filterProperties, convertPropertyToCardData } from "@/lib/property-filters"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  PaginationEllipsis,
+} from "@/components/ui/pagination"
 
 // Distance calculation utilities
 interface Coordinates {
@@ -92,6 +101,8 @@ export function MapAndResults({ filters, properties, searchLocation }: MapAndRes
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [items, setItems] = useState<Property[]>([])
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 12
 
   const payload = useMemo(() => {
     const defaultFilters = { status: ["for_sale"], limit: 100 }
@@ -177,17 +188,51 @@ export function MapAndResults({ filters, properties, searchLocation }: MapAndRes
     return filtered
   }, [items, filters, searchLocation])
 
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [filters, searchLocation])
+
+  // Calculate pagination
+  const totalItems = filteredItems.length
+  const totalPages = Math.ceil(totalItems / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedItems = filteredItems.slice(startIndex, endIndex)
+
   // Convert API items to PropertyCard format
-  const propertyCards = filteredItems.map((property: Property) => {
+  const propertyCards = paginatedItems.map((property: Property) => {
     return convertPropertyToCardData(property)
   })
+
+  // Pagination handlers
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+    // Scroll to top of results when changing pages
+    const resultsElement = document.getElementById('search-results')
+    if (resultsElement) {
+      resultsElement.scrollIntoView({ behavior: 'smooth' })
+    }
+  }
+
+  const handlePreviousPage = () => {
+    if (currentPage > 1) {
+      handlePageChange(currentPage - 1)
+    }
+  }
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      handlePageChange(currentPage + 1)
+    }
+  }
   return (
     <div className="flex h-full flex-col gap-4 p-4">
       <div>
         <MapPlaceholder />
       </div>
 
-      <div>
+      <div id="search-results">
         <div className="mb-3 flex items-center justify-between">
           <div>
           <h2 className="text-balance text-lg font-semibold">Search Results</h2>
@@ -201,7 +246,16 @@ export function MapAndResults({ filters, properties, searchLocation }: MapAndRes
               </p>
             )}
           </div>
-          <p className="text-sm text-muted-foreground">{propertyCards.length} properties found</p>
+          <div className="text-right">
+            <p className="text-sm text-muted-foreground">
+              {totalItems} properties found
+            </p>
+            {totalPages > 1 && (
+              <p className="text-xs text-muted-foreground">
+                Page {currentPage} of {totalPages}
+              </p>
+            )}
+          </div>
         </div>
 
         {loading ? (
@@ -209,11 +263,81 @@ export function MapAndResults({ filters, properties, searchLocation }: MapAndRes
         ) : error ? (
           <div className="flex h-32 items-center justify-center text-destructive">{error}</div>
         ) : propertyCards.length > 0 ? (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {propertyCards.map((p, idx) => (
-              <PropertyCard key={idx} {...p} />
-            ))}
-          </div>
+          <>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {propertyCards.map((p, idx) => (
+                <PropertyCard key={idx} {...p} />
+              ))}
+            </div>
+            
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="mt-6">
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious 
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          handlePreviousPage()
+                        }}
+                        className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                    
+                    {/* Page numbers */}
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                      // Show first page, last page, current page, and pages around current page
+                      const shouldShow = 
+                        page === 1 || 
+                        page === totalPages || 
+                        (page >= currentPage - 1 && page <= currentPage + 1)
+                      
+                      if (!shouldShow) {
+                        // Show ellipsis for gaps
+                        if (page === currentPage - 2 || page === currentPage + 2) {
+                          return (
+                            <PaginationItem key={page}>
+                              <PaginationEllipsis />
+                            </PaginationItem>
+                          )
+                        }
+                        return null
+                      }
+                      
+                      return (
+                        <PaginationItem key={page}>
+                          <PaginationLink
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault()
+                              handlePageChange(page)
+                            }}
+                            isActive={page === currentPage}
+                            className="cursor-pointer"
+                          >
+                            {page}
+                          </PaginationLink>
+                        </PaginationItem>
+                      )
+                    })}
+                    
+                    <PaginationItem>
+                      <PaginationNext 
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          handleNextPage()
+                        }}
+                        className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              </div>
+            )}
+          </>
         ) : (
           <div className="flex h-32 items-center justify-center text-muted-foreground">
             <p>No properties found. Try asking about a specific location or property type!</p>
