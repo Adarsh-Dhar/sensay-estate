@@ -60,6 +60,7 @@ function isSearchResponse(data: any): boolean {
   }
 }
 
+
 function getSearchResponseData(data: any): { redirectUrl: string; location?: string } | null {
   try {
     const parsed = typeof data === 'string' ? JSON.parse(data) : data
@@ -74,6 +75,7 @@ function getSearchResponseData(data: any): { redirectUrl: string; location?: str
   }
   return null
 }
+
 
 export function ChatbotDialog({
   open,

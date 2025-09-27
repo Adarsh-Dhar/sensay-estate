@@ -177,6 +177,35 @@ function isNegotiationQuery(message: string, hasProjectId: boolean): boolean {
   return negotiationKeywords.some(keyword => lowerMessage.includes(keyword))
 }
 
+function isYieldQuery(message: string): boolean {
+  const lower = message.toLowerCase()
+  return lower.includes('rental yield') || 
+         lower.includes('cap rate') || 
+         lower.includes('roi') || 
+         lower.includes('return on investment') ||
+         lower.includes('investment potential') ||
+         lower.includes('rental income') ||
+         lower.includes('cash flow') ||
+         lower.includes('rental analysis') ||
+         lower.includes('investment analysis') ||
+         lower.includes('what can i rent') ||
+         lower.includes('how much rent') ||
+         lower.includes('rental potential') ||
+         lower.includes('is this a good investment') ||
+         lower.includes('investment returns') ||
+         lower.includes('yield analysis') ||
+         lower.includes('calculate rental') ||
+         lower.includes('rental calculator') ||
+         lower.includes('investment calculator') ||
+         lower.includes('rental yield for') ||
+         lower.includes('cap rate for') ||
+         lower.includes('investment potential for') ||
+         lower.includes('what\'s the rental yield') ||
+         lower.includes('calculate cap rate') ||
+         lower.includes('rental income potential')
+}
+
+
 type SensayClientHeaders = {
   'Content-Type': 'application/json'
   'X-ORGANIZATION-SECRET': string
@@ -425,6 +454,8 @@ export async function POST(req: NextRequest) {
         (realtorDetails?.location?.address?.coordinate)
       const lat = typeof latFromContext === 'number' ? latFromContext : (coord?.lat ?? coord?.latitude)
       const lon = typeof lonFromContext === 'number' ? lonFromContext : (coord?.lon ?? coord?.lng ?? coord?.longitude)
+      
+      console.log(`[ChatAPI] Coordinate extraction: coord=`, coord, `lat=${lat}, lon=${lon}`)
 
       if (!neighborhood && typeof lat === 'number' && typeof lon === 'number') {
         const neighRes = await fetch(`${origin}/api/neighborhood`, {
@@ -437,6 +468,66 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Fetch yield data if this is a yield-related query
+      let yieldData = null
+      const isYield = isYieldQuery(message)
+      console.log(`[ChatAPI] Yield query detection: "${message}" -> ${isYield}`)
+      // Use default San Francisco coordinates if property coordinates are not available
+      const yieldLat = typeof lat === 'number' ? lat : 37.7749
+      const yieldLon = typeof lon === 'number' ? lon : -122.4194
+      if (isYield) {
+        try {
+          const propertyPrice = (realtorDetails as any)?.list_price || 800000
+          const hoaFees = (realtorDetails as any)?.hoa?.fee || 300
+          console.log(`[ChatAPI] Fetching yield data for lat: ${yieldLat}, lon: ${yieldLon}, price: ${propertyPrice}, hoa: ${hoaFees}`)
+          
+          const yieldRes = await fetch(`${origin}/api/yield`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              latitude: yieldLat,
+              longitude: yieldLon,
+              propertyPrice: propertyPrice,
+              hoaFees: hoaFees
+            }),
+          })
+          if (yieldRes.ok) {
+            yieldData = await yieldRes.json()
+            console.log(`[ChatAPI] Yield data fetched:`, yieldData)
+            
+            // Return yield analysis directly instead of passing to LLM
+            const capRateEvaluation = yieldData.capRate > 5 ? '✅ Good investment potential' : 
+                                     yieldData.capRate > 3 ? '⚠️ Moderate investment potential' : 
+                                     '❌ Low investment potential'
+            
+            const analysisContent = `Rental Yield Analysis:
+
+📍 Location: ${yieldData.address}
+💰 Property Price: $${yieldData.propertyPrice.toLocaleString()}
+📊 Annual Costs: $${yieldData.annualCosts.toLocaleString()}
+
+💵 Estimated Monthly Rent: $${yieldData.estimatedMonthlyRent.toLocaleString()}
+📈 Annual Rental Income: $${yieldData.annualRentalIncome.toLocaleString()}
+💸 Net Operating Income: $${yieldData.netOperatingIncome.toLocaleString()}
+📊 Cap Rate: ${yieldData.capRate}%
+
+${capRateEvaluation} - Cap rates above 5% are generally considered good for rental properties.`
+
+            return NextResponse.json({ 
+              success: true, 
+              data: {
+                action: 'reply',
+                content: analysisContent
+              }
+            })
+          } else {
+            console.error('[ChatAPI] Yield API error:', yieldRes.status, yieldRes.statusText)
+          }
+        } catch (error) {
+          console.error('[ChatAPI] Error fetching yield data:', error)
+        }
+      }
+
       if (hasProjectId) {
         projectCache.set(projectId!, { realtorDetails, neighborhood, ts: now })
       }
@@ -446,6 +537,7 @@ export async function POST(req: NextRequest) {
         projectContext: projectContext ?? null,
         realtorDetails: realtorDetails ?? null,
         neighborhood: neighborhood ?? null,
+        yieldData: yieldData ?? null,
       }
     } catch (_) {
       // Non-fatal; continue without extra context
@@ -458,6 +550,7 @@ export async function POST(req: NextRequest) {
           projectContext: assembledContext.projectContext ?? null,
           realtorDetails: compactRealtorDetails(assembledContext.realtorDetails),
           neighborhood: compactNeighborhood(assembledContext.neighborhood),
+          yieldData: assembledContext.yieldData ?? null,
         }
       : null
 
@@ -466,6 +559,7 @@ export async function POST(req: NextRequest) {
     if (compactedContext) {
       const rd = compactedContext.realtorDetails as any
       const nb = compactedContext.neighborhood as any
+      const yd = compactedContext.yieldData as any
       const addressLine = rd?.location?.address?.line
       const city = rd?.location?.address?.city
       const state = rd?.location?.address?.state_code
@@ -491,6 +585,8 @@ export async function POST(req: NextRequest) {
         hoaFee: typeof hoaFee === 'number' ? hoaFee : undefined,
       }
       const parts = [
+        // Add yield data first if available (highest priority)
+        yd && `RENTAL_YIELD_DATA: cap_rate: ${yd.capRate}%, monthly_rent: $${yd.estimatedMonthlyRent}, annual_income: $${yd.annualRentalIncome}, net_income: $${yd.netOperatingIncome}, annual_costs: $${yd.annualCosts}`,
         addressLine && `${addressLine}${city ? ', ' + city : ''}${state ? ', ' + state : ''}${postal ? ' ' + postal : ''}`,
         typeof listPrice === 'number' && `list_price: $${listPrice}`,
         (beds || beds === 0) && (baths || baths === 0) && `beds/baths: ${beds}/${baths}`,
@@ -501,6 +597,7 @@ export async function POST(req: NextRequest) {
         nb?.walkability_score && `walk: ${nb.walkability_score}`,
       ].filter(Boolean)
       minimalContextText = parts.join(' | ')
+      console.log(`[ChatAPI] Context text: ${minimalContextText}`)
     } else if (projectId || projectContext) {
       minimalContextText = `project: ${projectId ?? 'unknown'}`
     }
@@ -508,6 +605,7 @@ export async function POST(req: NextRequest) {
     // Determine if this is a proactive analysis request
     const isProactiveAnalysis = message === "PROACTIVE_ANALYSIS" && !!projectId
     const isNegotiation = isNegotiationQuery(message, !!projectId)
+    const isYield = isYieldQuery(message)
     wasNegotiation = isNegotiation
     
     // Use a compact negotiation prompt to reduce token pressure
@@ -528,9 +626,21 @@ export async function POST(req: NextRequest) {
       })
     }
     
+    // If this is a yield query and we have yield data, include it directly in the prompt
+    let yieldDataText = ''
+    if (isYield && assembledContext?.yieldData) {
+      const yd = assembledContext.yieldData as any
+      console.log(`[ChatAPI] Including yield data in prompt:`, yd)
+      yieldDataText = `\n\nCRITICAL: The user is asking about rental yield. Here is the actual yield data for this property:
+RENTAL_YIELD_DATA: cap_rate: ${yd.capRate}%, monthly_rent: $${yd.estimatedMonthlyRent}, annual_income: $${yd.annualRentalIncome}, net_income: $${yd.netOperatingIncome}, annual_costs: $${yd.annualCosts}
+
+You MUST use this data to provide a detailed analysis instead of returning a calculate_yield action. Return {"action": "reply", "content": "Your detailed analysis here"}`
+    }
+
     const rawContent = [
       selectedPrompt,
       minimalContextText ? `Context: ${minimalContextText}` : undefined,
+      yieldDataText,
       `User: ${message}`,
     ].filter(Boolean).join('\n\n')
 
@@ -540,6 +650,8 @@ export async function POST(req: NextRequest) {
     const finalContent = rawContent.length > MAX_CONTENT ? rawContent.slice(0, MAX_CONTENT) : rawContent
 
     console.log(`[ChatAPI] Payload sizes: context=${minimalContextText.length}, raw=${rawContent.length}, final=${finalContent.length}`)
+    console.log(`[ChatAPI] Yield data text: ${yieldDataText}`)
+    console.log(`[ChatAPI] Final content preview: ${finalContent.slice(0, 500)}...`)
     // Use a single, provider-supported body shape and fallback to a fresh replica on provider errors
     const targetPathBase = `/replicas/${encodeURIComponent(replicaUuid)}/chat/completions`
 
@@ -569,6 +681,7 @@ export async function POST(req: NextRequest) {
 
     const duration = Date.now() - startTime
     console.log(`[ChatAPI] Chat completion completed in ${duration}ms`)
+    
     
     return NextResponse.json({ success: true, data: completion })
   } catch (error) {
