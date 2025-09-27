@@ -20,6 +20,7 @@ export default function ListingPage() {
   const [loading, setLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
   const [chatOpen, setChatOpen] = useState<boolean>(false)
+  const [neighborhoodData, setNeighborhoodData] = useState<any>(null)
 
   useEffect(() => {
     let isActive = true
@@ -69,6 +70,31 @@ export default function ListingPage() {
   const hoaFee = home?.hoa?.fee ?? null
   const descriptionText = home?.description?.text as string | undefined
   const nearbySchools = (home?.nearby_schools?.schools || home?.schools?.schools || []) as Array<any>
+
+  // Fetch neighborhood data when coordinates are available
+  useEffect(() => {
+    async function fetchNeighborhoodData() {
+      if (typeof latitude === 'number' && typeof longitude === 'number') {
+        try {
+          const response = await fetch('/api/neighborhood', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ latitude, longitude }),
+          })
+          if (response.ok) {
+            const data = await response.json()
+            setNeighborhoodData(data)
+          }
+        } catch (error) {
+          console.error('Failed to fetch neighborhood data:', error)
+        }
+      }
+    }
+    
+    if (home) {
+      fetchNeighborhoodData()
+    }
+  }, [home, latitude, longitude])
 
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState<number>(0)
   const totalPhotos = Array.isArray(photos) ? photos.length : 0
@@ -233,6 +259,7 @@ export default function ListingPage() {
           status: home?.status,
           latitude: typeof latitude === 'number' ? latitude : undefined,
           longitude: typeof longitude === 'number' ? longitude : undefined,
+          neighborhood: neighborhoodData,
         }}
       />
     </div>

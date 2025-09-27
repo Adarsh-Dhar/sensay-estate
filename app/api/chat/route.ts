@@ -66,6 +66,100 @@ function compactNeighborhood(nb: any) {
 const replicaCache = new Map<string, string>() // userId -> replicaUuid
 const projectCache = new Map<string, { realtorDetails?: any; neighborhood?: any; ts: number }>() // projectId -> ctx
 
+// Function to generate proactive analysis
+function generateProactiveAnalysis(context: any): string {
+  const rd = context?.realtorDetails
+  const nb = context?.neighborhood
+  const pc = context?.projectContext
+  
+  // Extract property data
+  const address = rd?.location?.address?.line || pc?.address || 'This property'
+  const city = rd?.location?.address?.city || pc?.address?.split(',')[1]?.trim() || ''
+  const state = rd?.location?.address?.state_code || pc?.address?.split(',')[2]?.trim() || ''
+  const listPrice = rd?.list_price || pc?.price
+  const beds = rd?.description?.beds || pc?.beds
+  const baths = rd?.description?.baths || pc?.baths
+  const sqft = rd?.building_size?.size
+  const hoaFee = rd?.hoa?.fee || pc?.hoaFee
+  const status = rd?.status || pc?.status
+  const dom = rd?.days_on_market
+  
+  // Calculate key metrics
+  const ppsf = listPrice && sqft ? Math.round(listPrice / sqft) : null
+  const totalMonthlyCost = listPrice ? Math.round((listPrice * 0.08 / 12) + (hoaFee || 0)) : null
+  
+  // Generate insights
+  const insights = []
+  
+  // Investment Score (mock calculation based on available data)
+  let investmentScore = 6
+  if (ppsf && ppsf < 400) investmentScore += 1
+  if (dom && dom > 30) investmentScore -= 1
+  if (hoaFee && hoaFee < 200) investmentScore += 1
+  if (beds && beds >= 3) investmentScore += 1
+  
+  insights.push(`📈 **Investment Score: ${investmentScore}/10**`)
+  if (ppsf) {
+    insights.push(`   • Price per sqft: $${ppsf} (${ppsf < 400 ? 'competitive' : ppsf < 600 ? 'moderate' : 'premium'} for the area)`)
+  }
+  if (dom !== undefined) {
+    insights.push(`   • Days on market: ${dom} (${dom < 30 ? 'fast-moving' : dom < 60 ? 'normal pace' : 'slow market'})`)
+  }
+  
+  // Price Analysis
+  insights.push(`\n⚖️ **Price Analysis**`)
+  if (listPrice) {
+    const priceFormatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(listPrice)
+    insights.push(`   • Listed at ${priceFormatted}`)
+    if (ppsf) {
+      insights.push(`   • Price per sqft: $${ppsf}`)
+    }
+    if (totalMonthlyCost) {
+      insights.push(`   • Estimated monthly cost: $${totalMonthlyCost.toLocaleString()}`)
+    }
+  }
+  
+  // Lifestyle Match
+  insights.push(`\n🚶‍♂️ **Lifestyle Match**`)
+  if (nb?.cafes?.length > 0) {
+    insights.push(`   • ${nb.cafes.length} cafes nearby: ${nb.cafes.slice(0, 2).join(', ')}`)
+  }
+  if (nb?.parks?.length > 0) {
+    insights.push(`   • ${nb.parks.length} parks within walking distance`)
+  }
+  if (nb?.schools?.length > 0) {
+    insights.push(`   • ${nb.schools.length} schools nearby`)
+  }
+  if (nb?.transport?.length > 0) {
+    insights.push(`   • Public transport: ${nb.transport.slice(0, 2).join(', ')}`)
+  }
+  
+  // Property Features
+  if (beds || baths || sqft) {
+    insights.push(`\n🏠 **Property Features**`)
+    if (beds) insights.push(`   • ${beds} bedroom${beds !== 1 ? 's' : ''}`)
+    if (baths) insights.push(`   • ${baths} bathroom${baths !== 1 ? 's' : ''}`)
+    if (sqft) insights.push(`   • ${sqft.toLocaleString()} sqft`)
+    if (hoaFee) insights.push(`   • HOA: $${hoaFee}/month`)
+  }
+  
+  // Market Position
+  if (status || dom !== undefined) {
+    insights.push(`\n📊 **Market Position**`)
+    if (status) insights.push(`   • Status: ${status}`)
+    if (dom !== undefined) {
+      const marketPosition = dom < 15 ? 'Hot market - act fast!' : 
+                           dom < 45 ? 'Normal market pace' : 
+                           'Slow market - negotiation opportunity'
+      insights.push(`   • ${marketPosition}`)
+    }
+  }
+  
+  const analysis = `Hi! I've analyzed ${address}${city ? ` in ${city}` : ''}. Here's my initial assessment:\n\n${insights.join('\n')}\n\nWhat would you like to explore in more detail?`
+  
+  return analysis
+}
+
 // Function to detect if the message is about property negotiation
 function isNegotiationQuery(message: string, hasProjectId: boolean): boolean {
   if (!hasProjectId) return false
@@ -411,14 +505,28 @@ export async function POST(req: NextRequest) {
       minimalContextText = `project: ${projectId ?? 'unknown'}`
     }
 
-    // Determine if this is a negotiation query and select appropriate prompt
+    // Determine if this is a proactive analysis request
+    const isProactiveAnalysis = message === "PROACTIVE_ANALYSIS" && !!projectId
     const isNegotiation = isNegotiationQuery(message, !!projectId)
     wasNegotiation = isNegotiation
+    
     // Use a compact negotiation prompt to reduce token pressure
     const selectedPrompt = isNegotiation ? NEGOTIATION_AGENT_PROMPT_COMPACT : CHAT_SYSTEM_PROMPT
 
-    console.log(`[ChatAPI] Starting chat completion for ${isNegotiation ? 'negotiation' : 'general'} query`)
+    console.log(`[ChatAPI] Starting chat completion for ${isProactiveAnalysis ? 'proactive analysis' : isNegotiation ? 'negotiation' : 'general'} query`)
     const startTime = Date.now()
+    
+    // Handle proactive analysis with special prompt
+    if (isProactiveAnalysis) {
+      const proactiveAnalysis = generateProactiveAnalysis(compactedContext)
+      return NextResponse.json({ 
+        success: true, 
+        data: { 
+          action: 'reply', 
+          content: proactiveAnalysis 
+        } 
+      })
+    }
     
     const rawContent = [
       selectedPrompt,

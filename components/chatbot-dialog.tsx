@@ -104,7 +104,50 @@ export function ChatbotDialog({
     if (open && initialPrompt && messages.length === 0) {
       setMessageInput(initialPrompt)
     }
-  }, [open])
+    // Trigger proactive analysis when opened with project context
+    if (open && projectContext && messages.length === 0) {
+      triggerProactiveAnalysis()
+    }
+  }, [open, projectContext])
+
+  const triggerProactiveAnalysis = useCallback(async () => {
+    if (sending || messages.length > 0) return
+    
+    setSending(true)
+    setError(null)
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          message: "PROACTIVE_ANALYSIS", 
+          userId, 
+          replicaUuid, 
+          projectId, 
+          projectContext 
+        }),
+      })
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "")
+        throw new Error(text || `Request failed: ${res.status}`)
+      }
+      const json = await res.json()
+      const success = Boolean(json?.success)
+      const assistantText = success ? extractAssistantText(json?.data) : ""
+      const reply: ChatMessage = {
+        id: `m-${Date.now()}-a`,
+        role: "assistant",
+        content: assistantText || (json?.error ? String(json.error) : "Unable to generate analysis"),
+      }
+      setMessages((prev) => [...prev, reply])
+    } catch (e: any) {
+      setError(e?.message || "Something went wrong generating analysis")
+    } finally {
+      setSending(false)
+    }
+  }, [sending, messages.length, userId, replicaUuid, projectId, projectContext])
 
   useEffect(() => {
     // Use setTimeout to ensure DOM is updated before scrolling
