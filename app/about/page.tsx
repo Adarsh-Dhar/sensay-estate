@@ -1,6 +1,7 @@
 "use client"
 
 import Image from "next/image"
+import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -229,7 +230,7 @@ export default function AboutPage() {
                     and a Vercel-powered deployment pipeline.
                   </p>
                   <div className="flex flex-wrap justify-center gap-2">
-                    {["Next.js", "Google Cloud AI", "Vercel", "TypeScript", "Tailwind CSS"].map((tech) => (
+                    {["Next.js", "Google Cloud AI", "Vercel", "TypeScript", "Tailwind CSS", "Sensay AI","Rapid API"].map((tech) => (
                       <Badge key={tech} variant="secondary" className="px-3 py-1">
                         {tech}
                       </Badge>
@@ -253,23 +254,25 @@ export default function AboutPage() {
             </p>
           </div>
           
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              { name: "YourName1", role: "AI & Backend Lead", link: "LinktoLinkedIn/GitHub" },
-              { name: "YourName2", role: "Frontend & UX Developer", link: "LinktoLinkedIn/GitHub" },
-              { name: "YourName3", role: "Product & Design", link: "LinktoLinkedIn/GitHub" }
-            ].map((member, index) => (
+          <div className="flex justify-center">
+            <div className="w-full max-w-sm">
+              {[
+                { name: "Adarsh Dhar", role: "Builder", link: "https://github.com/Adarsh-Dhar" },
+              ].map((member, index) => (
               <Card key={index} className="p-6 text-center hover:shadow-lg transition-shadow">
                 <div className="w-20 h-20 bg-primary/10 rounded-full mx-auto mb-4 flex items-center justify-center">
                   <Users className="h-8 w-8 text-primary" />
                 </div>
                 <h3 className="font-semibold text-foreground mb-2">{member.name}</h3>
                 <p className="text-sm text-muted-foreground mb-4">{member.role}</p>
-                <Button variant="outline" size="sm" className="w-full">
-                  View Profile
-                </Button>
+                <Link href={member.link} target="_blank" rel="noopener noreferrer">
+                  <Button variant="outline" size="sm" className="w-full">
+                    View Profile
+                  </Button>
+                </Link>
               </Card>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
       </section>
@@ -285,7 +288,7 @@ export default function AboutPage() {
               </div>
               <div className="prose prose-lg max-w-none text-muted-foreground">
                 <p className="mb-6">
-                  Our journey began with a shared frustration: the real estate market felt outdated. During this 48-hour sprint, 
+                  Our journey began with a shared frustration: the real estate market felt outdated. During this 5-day sprint, 
                   our biggest challenge was creating a truly seamless multilingual experience that didn't feel robotic.
                 </p>
                 <p className="mb-6">
@@ -359,8 +362,12 @@ export default function AboutPage() {
             <Card className="p-6 text-center hover:shadow-lg transition-shadow">
               <Github className="h-8 w-8 text-primary mx-auto mb-4" />
               <h3 className="font-semibold text-foreground mb-2">GitHub Repository</h3>
-              <p className="text-sm text-muted-foreground mb-4">Linktoyourproject'sGitHubrepo</p>
-              <Button variant="outline" size="sm" className="w-full">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="w-full"
+                onClick={() => window.open('https://github.com/Adarsh-Dhar/sensay-estate', '_blank')}
+              >
                 View Code
               </Button>
             </Card>
@@ -368,8 +375,12 @@ export default function AboutPage() {
             <Card className="p-6 text-center hover:shadow-lg transition-shadow">
               <Play className="h-8 w-8 text-primary mx-auto mb-4" />
               <h3 className="font-semibold text-foreground mb-2">Demo Video</h3>
-              <p className="text-sm text-muted-foreground mb-4">LinktoashortYouTubedemo</p>
-              <Button variant="outline" size="sm" className="w-full">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="w-full"
+                onClick={() => window.open('https://youtube.com/watch?v=placeholder', '_blank')}
+              >
                 Watch Demo
               </Button>
             </Card>
@@ -377,8 +388,12 @@ export default function AboutPage() {
             <Card className="p-6 text-center hover:shadow-lg transition-shadow">
               <Mail className="h-8 w-8 text-primary mx-auto mb-4" />
               <h3 className="font-semibold text-foreground mb-2">Contact Us</h3>
-              <p className="text-sm text-muted-foreground mb-4">Yourteam'semailaddress</p>
-              <Button variant="outline" size="sm" className="w-full">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="w-full"
+                onClick={() => window.open('mailto:dharadarsh0@gmail.com', '_blank')}
+              >
                 Send Email
               </Button>
             </Card>
