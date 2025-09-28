@@ -27,12 +27,6 @@ export default function Header() {
             Home
           </Link>
           <Link 
-            href="/search" 
-            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Search
-          </Link>
-          <Link 
             href="/about" 
             className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
           >
