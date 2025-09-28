@@ -1,6 +1,5 @@
 "use client"
 
-import { MapPlaceholder } from "./map-placeholder"
 import { PropertyCard } from "./property-card"
 import { useEffect, useMemo, useState } from "react"
 import { Property, PropertyFilters as PropertyFiltersType } from "@/types/property"
@@ -228,9 +227,6 @@ export function MapAndResults({ filters, properties, searchLocation }: MapAndRes
   }
   return (
     <div className="flex h-full flex-col gap-4 p-4">
-      <div>
-        <MapPlaceholder />
-      </div>
 
       <div id="search-results">
         <div className="mb-3 flex items-center justify-between">
