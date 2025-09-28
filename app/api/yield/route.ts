@@ -8,7 +8,8 @@ function adjustRentForPropertyCharacteristics(
   baths?: number,
   sqft?: number,
   propertyType?: string,
-  yearBuilt?: number
+  yearBuilt?: number,
+  propertyDescription?: string
 ): number {
   let adjustmentFactor = 1.0;
   
@@ -78,6 +79,39 @@ function adjustRentForPropertyCharacteristics(
     }
   }
   
+  // 6. Property description analysis (NEW)
+  if (propertyDescription) {
+    const descLower = propertyDescription.toLowerCase();
+    
+    // Positive factors that increase rental value
+    if (descLower.includes('development opportunity') || descLower.includes('entitled')) {
+      adjustmentFactor *= 1.15; // 15% increase for development potential
+    }
+    if (descLower.includes('2 unit building') || descLower.includes('multiple units') || descLower.includes('duplex')) {
+      adjustmentFactor *= 1.2; // 20% increase for multi-unit properties
+    }
+    if (descLower.includes('outdoor spaces') || descLower.includes('patio') || descLower.includes('balcony')) {
+      adjustmentFactor *= 1.05; // 5% increase for outdoor amenities
+    }
+    if (descLower.includes('good condition') || descLower.includes('livable') || descLower.includes('move-in ready')) {
+      adjustmentFactor *= 1.08; // 8% increase for good condition
+    }
+    if (descLower.includes('natural light') || descLower.includes('flexible floor plan')) {
+      adjustmentFactor *= 1.03; // 3% increase for desirable features
+    }
+    if (descLower.includes('prime') || descLower.includes('coveted') || descLower.includes('walking distance')) {
+      adjustmentFactor *= 1.1; // 10% increase for location advantages
+    }
+    
+    // Negative factors that decrease rental value
+    if (descLower.includes('needs renovation') || descLower.includes('fixer') || descLower.includes('tear down')) {
+      adjustmentFactor *= 0.8; // 20% reduction for properties needing work
+    }
+    if (descLower.includes('unique opportunity') && descLower.includes('could not be entitled')) {
+      adjustmentFactor *= 0.9; // 10% reduction for properties that may be overpriced due to uniqueness
+    }
+  }
+  
   // Ensure minimum adjustment factor to avoid unrealistic rents
   adjustmentFactor = Math.max(0.1, Math.min(2.0, adjustmentFactor));
   
@@ -98,7 +132,8 @@ export async function POST(request: Request) {
       baths,
       sqft,
       propertyType,
-      yearBuilt
+      yearBuilt,
+      propertyDescription
     } = await request.json();
 
     // Basic validation to ensure required data is present
@@ -181,17 +216,10 @@ export async function POST(request: Request) {
       
       console.log('Using fallback rent calculation:', fallbackRent);
       
-      // Use the fallback rent as base rent
+      // Use the fallback rent as base rent, then add 0.5% of property value
       const baseMonthlyRent = fallbackRent;
-      const adjustedMonthlyRent = adjustRentForPropertyCharacteristics(
-        baseMonthlyRent,
-        propertyPrice,
-        beds,
-        baths,
-        sqft,
-        propertyType,
-        yearBuilt
-      );
+      const propertyValueAddition = Math.round(propertyPrice * 0.005); // 0.5% of property value
+      const adjustedMonthlyRent = baseMonthlyRent + propertyValueAddition;
       
       const annualRentalIncome = adjustedMonthlyRent * 12;
       const netOperatingIncome = annualRentalIncome - annualCosts;
@@ -226,7 +254,7 @@ export async function POST(request: Request) {
         );
     }
 
-    // 3. Adjust rental estimate based on property characteristics vs median
+    // 3. Adjust rental estimate based on property characteristics
     const adjustedMonthlyRent = adjustRentForPropertyCharacteristics(
       baseMonthlyRent,
       propertyPrice,
@@ -234,7 +262,8 @@ export async function POST(request: Request) {
       baths,
       sqft,
       propertyType,
-      yearBuilt
+      yearBuilt,
+      propertyDescription
     );
 
     // 4. Perform the Investment Calculations

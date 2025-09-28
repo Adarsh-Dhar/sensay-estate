@@ -9,6 +9,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@google-cloud/translate": "^9.2.0",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-alert-dialog": "1.1.4",
@@ -40,6 +41,7 @@
     "@vercel/analytics": "latest",
     "autoprefixer": "^10.4.20",
     "class-variance-authority": "^0.7.1",
+    "cld": "^2.10.1",
     "clsx": "^2.1.1",
     "cmdk": "1.0.4",
     "date-fns": "4.1.0",
