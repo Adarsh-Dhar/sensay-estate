@@ -193,6 +193,15 @@ function isYieldResponse(data: any): boolean {
   }
 }
 
+function isReviewsResponse(data: any): boolean {
+  try {
+    const parsed = typeof data === 'string' ? JSON.parse(data) : data
+    return parsed?.action === 'get_reviews' && parsed?.content
+  } catch {
+    return false
+  }
+}
+
 
 function getSearchResponseData(data: any): { redirectUrl: string; location?: string } | null {
   try {
@@ -227,6 +236,21 @@ function getYieldResponseData(data: any): { content: string; latitude?: number; 
   return null
 }
 
+function getReviewsResponseData(data: any): { content: string; location?: string } | null {
+  try {
+    const parsed = typeof data === 'string' ? JSON.parse(data) : data
+    if (parsed?.action === 'get_reviews' && parsed?.content) {
+      return {
+        content: parsed.content,
+        location: parsed.location
+      }
+    }
+  } catch {
+    // Not a valid reviews response
+  }
+  return null
+}
+
 
 export function ChatbotDialog({
   open,
@@ -244,8 +268,10 @@ export function ChatbotDialog({
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [sending, setSending] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
-  const [selectedLanguage, setSelectedLanguage] = useState<string>("en")
+  const [selectedLanguage, setSelectedLanguage] = useState<string>("")
   const [translating, setTranslating] = useState<boolean>(false)
+  const [languageSelected, setLanguageSelected] = useState<boolean>(false)
+  const [fetchingReviews, setFetchingReviews] = useState<boolean>(false)
   const endRef = useRef<HTMLDivElement | null>(null)
   const scrollAreaRef = useRef<HTMLDivElement | null>(null)
 
@@ -381,20 +407,25 @@ export function ChatbotDialog({
     if (!open) {
       // reset transient error when closing
       setError(null)
+      setLanguageSelected(false)
+      setSelectedLanguage("")
+      setSending(false)
       return
     }
+    // Reset sending state when dialog opens
+    if (open) {
+      setSending(false)
+      setError(null)
+    }
     // optional initial prompt when opened
-    if (open && initialPrompt && messages.length === 0) {
+    if (open && initialPrompt && messages.length === 0 && languageSelected) {
       setMessageInput(initialPrompt)
     }
-    // Trigger proactive analysis when opened with project context
-    if (open && projectContext && messages.length === 0) {
-      triggerProactiveAnalysis()
-    }
-  }, [open, projectContext])
+    // Removed automatic proactive analysis - let user ask first question
+  }, [open, projectContext, languageSelected])
 
   const triggerProactiveAnalysis = useCallback(async () => {
-    if (sending || messages.length > 0) return
+    if (sending || messages.length > 0 || !languageSelected) return
     
     setSending(true)
     setError(null)
@@ -461,7 +492,7 @@ export function ChatbotDialog({
 
   const sendMessage = useCallback(async () => {
     const content = messageInput.trim()
-    if (!content || sending || translating) return
+    if (!content || sending || translating || !languageSelected) return
     setSending(true)
     setTranslating(true)
     setError(null)
@@ -561,6 +592,25 @@ export function ChatbotDialog({
         language: finalLang,
       }
       setMessages((prev) => [...prev, reply])
+      
+      // Check if this is a get_reviews action and trigger the API call
+      try {
+        const parsedResponse = JSON.parse(assistantText)
+        if (parsedResponse?.action === 'get_reviews' && parsedResponse?.location) {
+          // Extract location from the response or use project context
+          const location = parsedResponse.location !== 'extracted_location' 
+            ? parsedResponse.location 
+            : projectContext?.address || 'this area'
+          
+          // Trigger the school data API call
+          setTimeout(() => {
+            fetchSchoolData(location)
+          }, 1000) // Small delay to show the fetching message first
+        }
+      } catch (e) {
+        // Not a JSON response, continue normally
+      }
+      
       // Scroll to bottom after adding message
       setTimeout(scrollToBottom, 100)
     } catch (e: any) {
@@ -571,7 +621,95 @@ export function ChatbotDialog({
     }
   }, [messageInput, sending, translating, detectLanguage, translateText, userId, replicaUuid, projectId, projectContext, scrollToBottom])
 
-  const canSend = useMemo(() => messageInput.trim().length > 0 && !sending && !translating, [messageInput, sending, translating])
+  const canSend = useMemo(() => messageInput.trim().length > 0 && !sending && !translating && languageSelected, [messageInput, sending, translating, languageSelected])
+
+  const handleLanguageChange = useCallback((value: string) => {
+    setSelectedLanguage(value)
+    setLanguageSelected(true)
+    setSending(false) // Ensure sending state is reset when language is selected
+    setError(null) // Clear any errors
+  }, [])
+
+  // Function to fetch school data using neighborhood API
+  const fetchSchoolData = useCallback(async (location: string) => {
+    setFetchingReviews(true)
+    try {
+      // First try to get coordinates from project context
+      let latitude, longitude
+      
+      if (projectContext?.latitude && projectContext?.longitude) {
+        latitude = projectContext.latitude
+        longitude = projectContext.longitude
+      } else if (projectContext?.address) {
+        // Try to extract coordinates from address if available
+        // For now, we'll use a fallback approach
+        console.log('No coordinates available, using fallback location')
+        // Use San Francisco coordinates as fallback
+        latitude = 37.7749
+        longitude = -122.4194
+      } else {
+        // Use San Francisco coordinates as fallback
+        latitude = 37.7749
+        longitude = -122.4194
+      }
+
+      const response = await fetch('/api/neighborhood', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ latitude, longitude })
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch neighborhood data')
+      }
+      
+      const data = await response.json()
+      
+      // Format school data for display
+      let schoolContent = ''
+      if (data.schools && data.schools.length > 0) {
+        schoolContent = `Based on the neighborhood data, here are the schools I found in the area:\n\n`
+        schoolContent += `**Schools Nearby (${data.schools.length} found):**\n`
+        data.schools.forEach((school: string, index: number) => {
+          schoolContent += `${index + 1}. ${school}\n`
+        })
+        schoolContent += `\n**Additional Amenities:**\n`
+        if (data.parks && data.parks.length > 0) {
+          schoolContent += `• ${data.parks.length} parks nearby: ${data.parks.slice(0, 3).join(', ')}\n`
+        }
+        if (data.cafes && data.cafes.length > 0) {
+          schoolContent += `• ${data.cafes.length} cafes nearby: ${data.cafes.slice(0, 3).join(', ')}\n`
+        }
+        if (data.transport && data.transport.length > 0) {
+          schoolContent += `• ${data.transport.length} transit options: ${data.transport.slice(0, 2).join(', ')}\n`
+        }
+        schoolContent += `\nThis area appears to be family-friendly with good educational options and amenities.`
+      } else {
+        schoolContent = `I searched the area but didn't find specific school information in the immediate vicinity. However, this doesn't mean there are no schools - they might be just outside the search radius or the data might not be available. I recommend checking with local school districts or using online school finder tools for more comprehensive information.`
+      }
+      
+      // Create a new message with the actual school data
+      const schoolMessage: ChatMessage = {
+        id: `m-${Date.now()}-schools`,
+        role: "assistant",
+        content: schoolContent,
+        language: selectedLanguage,
+      }
+      
+      setMessages((prev) => [...prev, schoolMessage])
+    } catch (error) {
+      console.error('Error fetching school data:', error)
+      const errorMessage: ChatMessage = {
+        id: `m-${Date.now()}-schools-error`,
+        role: "assistant",
+        content: "I encountered an issue while fetching school information. Please try again or ask about a specific aspect of the neighborhood.",
+        language: selectedLanguage,
+      }
+      setMessages((prev) => [...prev, errorMessage])
+    } finally {
+      setFetchingReviews(false)
+    }
+  }, [selectedLanguage, projectContext])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -584,7 +722,7 @@ export function ChatbotDialog({
             <DialogDescription>{description}</DialogDescription>
               </div>
               <div className="ml-4">
-                <Select value={selectedLanguage} onValueChange={setSelectedLanguage}>
+                <Select value={selectedLanguage} onValueChange={handleLanguageChange}>
                   <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="Select language" />
                   </SelectTrigger>
@@ -602,14 +740,25 @@ export function ChatbotDialog({
               </div>
             </div>
             <div className="text-xs text-muted-foreground mt-2">
-              💬 I can understand and respond in any language. Just type your message and I'll automatically detect the language!
+              {!languageSelected 
+                ? "🌍 Please select your preferred language to start the conversation"
+                : "💬 I can understand and respond in any language. Just type your message and I'll automatically detect the language!"
+              }
             </div>
           </DialogHeader>
 
           <div className="flex-1 overflow-hidden">
             <ScrollArea className="h-full" ref={scrollAreaRef}>
               <div className="px-4 py-4">
-                {messages.length === 0 ? (
+                {!languageSelected ? (
+                  <div className="text-muted-foreground py-16 text-center text-sm">
+                    <div className="mb-4">
+                      <div className="text-4xl mb-2">🌍</div>
+                      <div className="text-lg font-medium mb-2">Choose Your Language</div>
+                      <div className="text-sm">Select your preferred language from the dropdown above to start the conversation.</div>
+                    </div>
+                  </div>
+                ) : messages.length === 0 ? (
                   <div className="text-muted-foreground py-16 text-center text-sm">
                     Start the conversation by asking a question.
                   </div>
@@ -618,8 +767,10 @@ export function ChatbotDialog({
                     {messages.map((m) => {
                       const isSearch = m.role === "assistant" && isSearchResponse(m.content)
                       const isYield = m.role === "assistant" && isYieldResponse(m.content)
+                      const isReviews = m.role === "assistant" && isReviewsResponse(m.content)
                       const searchData = isSearch ? getSearchResponseData(m.content) : null
                       const yieldData = isYield ? getYieldResponseData(m.content) : null
+                      const reviewsData = isReviews ? getReviewsResponseData(m.content) : null
                       
                       return (
                         <div key={m.id} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}> 
@@ -654,6 +805,29 @@ export function ChatbotDialog({
                                   <div>🏠 HOA: ${yieldData.hoaFees}/month</div>
                                 )}
                               </div>
+                            </div>
+                          ) : isReviews && reviewsData ? (
+                            <div className="max-w-[80%] rounded-lg bg-muted p-3">
+                              <div className="flex items-center gap-2 mb-3">
+                                <div className="text-lg">📚</div>
+                                <div>
+                                  <p className="text-sm font-medium">
+                                    {fetchingReviews ? 'Fetching School Information...' : 'Fetching School Information'}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {reviewsData.location ? `Searching in ${reviewsData.location}` : 'Searching for educational resources'}
+                                  </p>
+                                </div>
+                              </div>
+                              <p className="text-sm text-muted-foreground">
+                                {reviewsData.content}
+                              </p>
+                              {fetchingReviews && (
+                                <div className="mt-2 flex items-center gap-2">
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                                  <span className="text-xs text-muted-foreground">Gathering school data...</span>
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <div
@@ -695,6 +869,15 @@ export function ChatbotDialog({
                           Thinking…
                         </div>
                       </div>
+                    ) : fetchingReviews ? (
+                      <div className="flex justify-start">
+                        <div className="bg-muted text-muted-foreground max-w-[80%] rounded-lg px-3 py-2 text-sm">
+                          <div className="flex items-center gap-2">
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                            <span>Fetching school information...</span>
+                          </div>
+                        </div>
+                      </div>
                     ) : null}
                     <div ref={endRef} />
                   </div>
@@ -719,9 +902,10 @@ export function ChatbotDialog({
               <textarea
                 value={messageInput}
                 onChange={(e) => setMessageInput(e.target.value)}
-                placeholder="Ask anything in any language…"
+                placeholder={!languageSelected ? "Please select a language first..." : "Ask anything in any language…"}
+                disabled={!languageSelected}
                 rows={2}
-                className="border-input placeholder:text-muted-foreground focus-visible:ring-ring/50 flex-1 resize-none rounded-md border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-[3px]"
+                className="border-input placeholder:text-muted-foreground focus-visible:ring-ring/50 flex-1 resize-none rounded-md border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-[3px] disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <Button type="submit" disabled={!canSend} className="self-stretch">
                 {translating ? "Translating…" : sending ? "Sending…" : "Send"}

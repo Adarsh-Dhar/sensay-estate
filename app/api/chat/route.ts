@@ -633,116 +633,215 @@ function isInvestmentScoreQuery(message: string): boolean {
          lower.includes('investment assessment')
 }
 
+function isNeighborhoodQuery(message: string): boolean {
+  const lower = message.toLowerCase()
+  
+  // Neighborhood query patterns
+  const neighborhoodPatterns = [
+    // Direct neighborhood questions
+    /what's the neighborhood like/i,
+    /neighborhood like/i,
+    /neighborhood around/i,
+    /neighborhood characteristics/i,
+    /what's the area like/i,
+    /area like/i,
+    /area around/i,
+    /area characteristics/i,
+    /neighborhood quality/i,
+    /area quality/i,
+    /neighborhood vibe/i,
+    /area vibe/i,
+    /neighborhood feel/i,
+    /area feel/i,
+    /neighborhood atmosphere/i,
+    /area atmosphere/i,
+    /neighborhood culture/i,
+    /area culture/i,
+    /neighborhood community/i,
+    /area community/i,
+    /neighborhood safety/i,
+    /area safety/i,
+    /neighborhood walkability/i,
+    /area walkability/i,
+    /neighborhood amenities/i,
+    /area amenities/i,
+    /neighborhood services/i,
+    /area services/i,
+    /neighborhood schools/i,
+    /area schools/i,
+    /neighborhood parks/i,
+    /area parks/i,
+    /neighborhood restaurants/i,
+    /area restaurants/i,
+    /neighborhood shopping/i,
+    /area shopping/i,
+    /neighborhood transportation/i,
+    /area transportation/i,
+    /neighborhood commute/i,
+    /area commute/i,
+  ]
+  
+  // Check if any neighborhood pattern matches
+  return neighborhoodPatterns.some(pattern => pattern.test(message))
+}
+
 function isLocationQuery(message: string): boolean {
   const lower = message.toLowerCase()
-  return lower.includes('where is this property') ||
-         lower.includes('where is the property') ||
-         lower.includes('where is it located') ||
-         lower.includes('property location') ||
-         lower.includes('what\'s the address') ||
-         lower.includes('property address') ||
-         lower.includes('location details') ||
-         lower.includes('dónde está esta propiedad') ||
-         lower.includes('ubicación de la propiedad') ||
-         lower.includes('dirección') ||
-         lower.includes('localización') ||
-         lower.includes('situated') ||
-         lower.includes('positioned') ||
-         lower.includes('placed') ||
-         lower.includes('found') ||
-         lower.includes('located at') ||
-         lower.includes('address') ||
-         lower.includes('location') ||
-         lower.includes('where is') ||
-         lower.includes('where\'s') ||
-         lower.includes('where are') ||
-         lower.includes('where can') ||
-         lower.includes('where does') ||
-         lower.includes('where will') ||
-         lower.includes('where would') ||
-         lower.includes('where should') ||
-         lower.includes('where might') ||
-         lower.includes('where could') ||
-         lower.includes('where may') ||
-         lower.includes('where must') ||
-         lower.includes('where shall') ||
-         lower.includes('where do') ||
-         lower.includes('where did') ||
-         lower.includes('where have') ||
-         lower.includes('where has') ||
-         lower.includes('where had') ||
-         lower.includes('address of') ||
-         lower.includes('location of') ||
-         lower.includes('position of') ||
-         lower.includes('place of') ||
-         lower.includes('site of') ||
-         lower.includes('spot of') ||
-         lower.includes('area of') ||
-         lower.includes('region of') ||
-         lower.includes('zone of') ||
-         lower.includes('district of') ||
-         lower.includes('neighborhood of') ||
-         lower.includes('city of') ||
-         lower.includes('state of') ||
-         lower.includes('country of') ||
-         // Spanish patterns - specific location terms
-         lower.includes('dónde está') ||
-         lower.includes('dónde se encuentra') ||
-         lower.includes('dónde queda') ||
-         lower.includes('dónde está ubicada') ||
-         lower.includes('dónde está ubicado') ||
-         lower.includes('cuál es la dirección') ||
-         lower.includes('cuál es la ubicación') ||
-         lower.includes('cuál es la localización') ||
-         lower.includes('cuál es la posición') ||
-         lower.includes('cuál es el lugar') ||
-         lower.includes('cuál es el sitio') ||
-         lower.includes('cuál es la zona') ||
-         lower.includes('cuál es el área') ||
-         lower.includes('cuál es la región') ||
-         lower.includes('cuál es el distrito') ||
-         lower.includes('cuál es el barrio') ||
-         lower.includes('cuál es la ciudad') ||
-         lower.includes('cuál es el país') ||
-         lower.includes('ubicación de la propiedad') ||
-         lower.includes('ubicación del inmueble') ||
-         lower.includes('ubicación del bien') ||
-         lower.includes('dirección de la propiedad') ||
-         lower.includes('dirección del inmueble') ||
-         lower.includes('dirección del bien') ||
-         lower.includes('localización de la propiedad') ||
-         lower.includes('localización del inmueble') ||
-         lower.includes('localización del bien') ||
-         lower.includes('posición de la propiedad') ||
-         lower.includes('posición del inmueble') ||
-         lower.includes('posición del bien') ||
-         lower.includes('lugar de la propiedad') ||
-         lower.includes('lugar del inmueble') ||
-         lower.includes('lugar del bien') ||
-         lower.includes('sitio de la propiedad') ||
-         lower.includes('sitio del inmueble') ||
-         lower.includes('sitio del bien') ||
-         lower.includes('zona de la propiedad') ||
-         lower.includes('zona del inmueble') ||
-         lower.includes('zona del bien') ||
-         lower.includes('área de la propiedad') ||
-         lower.includes('área del inmueble') ||
-         lower.includes('área del bien') ||
-         lower.includes('región de la propiedad') ||
-         lower.includes('región del inmueble') ||
-         lower.includes('región del bien') ||
-         lower.includes('distrito de la propiedad') ||
-         lower.includes('distrito del inmueble') ||
-         lower.includes('distrito del bien') ||
-         lower.includes('barrio de la propiedad') ||
-         lower.includes('barrio del inmueble') ||
-         lower.includes('barrio del bien') ||
-         lower.includes('ciudad de la propiedad') ||
-         lower.includes('ciudad del inmueble') ||
-         lower.includes('ciudad del bien') ||
-         lower.includes('país de la propiedad') ||
-         lower.includes('país del inmueble') ||
-         lower.includes('país del bien')
+  
+  // More specific location query patterns to avoid false positives
+  const locationPatterns = [
+    // Direct location questions
+    /where is this property/i,
+    /where is the property/i,
+    /where is it located/i,
+    /what's the address/i,
+    /what is the address/i,
+    /property address/i,
+    /property location/i,
+    /location details/i,
+    /where is.*located/i,
+    /where.*property.*located/i,
+    /address.*property/i,
+    /location.*property/i,
+    
+    // Spanish patterns
+    /dónde está esta propiedad/i,
+    /dónde está la propiedad/i,
+    /ubicación de la propiedad/i,
+    /dirección de la propiedad/i,
+    /cuál es la dirección/i,
+    /cuál es la ubicación/i,
+    
+    // Specific location terms (but not just "property" alone)
+    /situated at/i,
+    /positioned at/i,
+    /placed at/i,
+    /found at/i,
+    /located at/i,
+    /address of/i,
+    /location of/i,
+    /position of/i,
+    /place of/i,
+    /site of/i,
+    /spot of/i,
+    /area of/i,
+    /region of/i,
+    /zone of/i,
+    /district of/i,
+    /neighborhood of/i,
+    /city of/i,
+    /state of/i,
+    /country of/i,
+  ]
+  
+  // Check if any location pattern matches
+  return locationPatterns.some(pattern => pattern.test(message))
+}
+
+function isPropertyAnalysisQuery(message: string): boolean {
+  const lower = message.toLowerCase()
+  
+  // Property analysis patterns
+  const analysisPatterns = [
+    // Pros and cons
+    /pros and cons/i,
+    /advantages and disadvantages/i,
+    /benefits and drawbacks/i,
+    /strengths and weaknesses/i,
+    /positives and negatives/i,
+    /good and bad/i,
+    /what are the pros/i,
+    /what are the cons/i,
+    /what are the advantages/i,
+    /what are the disadvantages/i,
+    /what are the benefits/i,
+    /what are the drawbacks/i,
+    /what are the strengths/i,
+    /what are the weaknesses/i,
+    /what are the positives/i,
+    /what are the negatives/i,
+    /what are the good/i,
+    /what are the bad/i,
+    
+    // General analysis
+    /analyze this property/i,
+    /analysis of this property/i,
+    /property analysis/i,
+    /tell me about this property/i,
+    /what do you think about this property/i,
+    /what's your opinion on this property/i,
+    /what should i know about this property/i,
+    /what are the key features/i,
+    /what are the highlights/i,
+    /what are the selling points/i,
+    /what makes this property special/i,
+    /what makes this property unique/i,
+    /what are the main features/i,
+    /what are the notable features/i,
+    /what are the important features/i,
+    /what are the key points/i,
+    /what are the main points/i,
+    /what are the notable points/i,
+    /what are the important points/i,
+    
+    // Property evaluation
+    /evaluate this property/i,
+    /evaluation of this property/i,
+    /assess this property/i,
+    /assessment of this property/i,
+    /review this property/i,
+    /review of this property/i,
+    /critique this property/i,
+    /critique of this property/i,
+    /appraise this property/i,
+    /appraisal of this property/i,
+    /value this property/i,
+    /valuation of this property/i,
+    /price this property/i,
+    /pricing of this property/i,
+    /rate this property/i,
+    /rating of this property/i,
+    /score this property/i,
+    /scoring of this property/i,
+    
+    // Spanish patterns
+    /pros y contras/i,
+    /ventajas y desventajas/i,
+    /beneficios y inconvenientes/i,
+    /fortalezas y debilidades/i,
+    /positivos y negativos/i,
+    /bueno y malo/i,
+    /cuáles son los pros/i,
+    /cuáles son los contras/i,
+    /cuáles son las ventajas/i,
+    /cuáles son las desventajas/i,
+    /cuáles son los beneficios/i,
+    /cuáles son los inconvenientes/i,
+    /cuáles son las fortalezas/i,
+    /cuáles son las debilidades/i,
+    /cuáles son los positivos/i,
+    /cuáles son los negativos/i,
+    /cuáles son los buenos/i,
+    /cuáles son los malos/i,
+    /analizar esta propiedad/i,
+    /análisis de esta propiedad/i,
+    /evaluar esta propiedad/i,
+    /evaluación de esta propiedad/i,
+    /revisar esta propiedad/i,
+    /revisión de esta propiedad/i,
+    /criticar esta propiedad/i,
+    /crítica de esta propiedad/i,
+    /valorar esta propiedad/i,
+    /valoración de esta propiedad/i,
+    /preciar esta propiedad/i,
+    /preciación de esta propiedad/i,
+    /calificar esta propiedad/i,
+    /calificación de esta propiedad/i,
+    /puntuar esta propiedad/i,
+    /puntuación de esta propiedad/i,
+  ]
+  
+  return analysisPatterns.some(pattern => pattern.test(message))
 }
 
 function isPropertyStatusQuery(message: string): boolean {
@@ -1548,7 +1647,9 @@ ${translationResult.translationRequired ? `✅ Translation completed successfull
     const isReview = isLocalityReviewQuery(translatedMessage)
     const isLifestyle = isLifestyleQuery(translatedMessage)
     const isInvestmentScore = isInvestmentScoreQuery(translatedMessage)
+    const isNeighborhood = isNeighborhoodQuery(translatedMessage)
     const isLocation = isLocationQuery(translatedMessage)
+    const isPropertyAnalysis = isPropertyAnalysisQuery(translatedMessage)
     let isPropertyStatus = isPropertyStatusQuery(translatedMessage)
     // Disambiguation: if both yield and property-status match, prefer yield semantics
     if (isYield && isPropertyStatus) {
@@ -1556,13 +1657,14 @@ ${translationResult.translationRequired ? `✅ Translation completed successfull
       isPropertyStatus = false
     }
     console.log(`[ChatAPI] Location query detection: "${translatedMessage}" -> ${isLocation}`)
+    console.log(`[ChatAPI] Property analysis query detection: "${translatedMessage}" -> ${isPropertyAnalysis}`)
     console.log(`[ChatAPI] Property status query detection: "${translatedMessage}" -> ${isPropertyStatus}`)
     wasNegotiation = isNegotiation
     
     // Use a compact negotiation prompt to reduce token pressure
     const selectedPrompt = isNegotiation ? NEGOTIATION_AGENT_PROMPT_COMPACT : CHAT_SYSTEM_PROMPT
 
-    console.log(`[ChatAPI] Starting chat completion for ${isProactiveAnalysis ? 'proactive analysis' : isNegotiation ? 'negotiation' : isYield ? 'yield' : isReview ? 'review' : isLifestyle ? 'lifestyle' : isInvestmentScore ? 'investment score' : isLocation ? 'location' : isPropertyStatus ? 'property status' : 'general'} query`)
+    console.log(`[ChatAPI] Starting chat completion for ${isProactiveAnalysis ? 'proactive analysis' : isNegotiation ? 'negotiation' : isYield ? 'yield' : isReview ? 'review' : isLifestyle ? 'lifestyle' : isInvestmentScore ? 'investment score' : isNeighborhood ? 'neighborhood' : isLocation ? 'location' : isPropertyStatus ? 'property status' : isPropertyAnalysis ? 'property analysis' : 'general'} query`)
     const startTime = Date.now()
     
     // Handle proactive analysis with special prompt
@@ -1604,6 +1706,54 @@ ${assembledContext?.neighborhood ? `
         data: {
           action: 'reply',
           content: reviewContent
+        }
+      })
+    }
+    
+    // Handle neighborhood queries - if we have neighborhood data, return comprehensive neighborhood analysis
+    if (isNeighborhood && assembledContext?.neighborhood) {
+      const nb = assembledContext.neighborhood
+      console.log(`[ChatAPI] Including neighborhood analysis with neighborhood data:`, nb)
+      
+      const neighborhoodContent = `🏘️ **Neighborhood Analysis for This Area**
+
+**Walkability & Transportation:**
+${nb.walkability_score ? `• Walk Score: ${nb.walkability_score} (${nb.walkability_score > 90 ? 'excellent' : nb.walkability_score > 70 ? 'very good' : nb.walkability_score > 50 ? 'good' : 'limited'} walkability)` : '• Walkability data not available'}
+${nb.transport?.length ? `• Public transport: ${nb.transport.slice(0, 3).join(', ')}` : '• Public transport data not available'}
+
+**Local Amenities:**
+${nb.cafes?.length ? `• ${nb.cafes.length} cafes nearby: ${nb.cafes.slice(0, 3).join(', ')}` : '• Cafe data not available'}
+${nb.parks?.length ? `• ${nb.parks.length} parks within walking distance: ${nb.parks.slice(0, 3).join(', ')}` : '• Park data not available'}
+${nb.schools?.length ? `• ${nb.schools.length} schools in the area: ${nb.schools.slice(0, 3).join(', ')}` : '• School data not available'}
+
+**Neighborhood Character:**
+• **Safety:** ${nb.crime_rate ? `Crime rate: ${nb.crime_rate}` : 'Safety data not available'}
+• **Community feel:** ${nb.walkability_score && nb.walkability_score > 70 ? 'Highly walkable area with strong community connections' : 'Neighborhood character varies by specific location'}
+
+**Quality Assessment:**
+${nb.walkability_score && nb.walkability_score > 80 ? '• **Excellent walkability** - Top-tier urban living experience' : ''}
+${nb.schools?.length && nb.schools.length > 0 ? '• **Good school access** - Multiple educational options nearby' : ''}
+${nb.parks?.length && nb.parks.length > 0 ? '• **Green spaces** - Parks and outdoor areas for recreation' : ''}
+${nb.cafes?.length && nb.cafes.length > 0 ? '• **Vibrant local culture** - Cafes and dining options within walking distance' : ''}
+
+💡 **Overall Assessment:** This neighborhood offers a ${nb.walkability_score && nb.walkability_score > 70 ? 'highly walkable' : 'convenient'} living environment with ${nb.schools?.length ? 'good school access' : 'various amenities'} and ${nb.parks?.length ? 'access to green spaces' : 'local services'}.`
+
+      // Translate the response to user's language if not English
+      let finalNeighborhoodContent = neighborhoodContent
+      if (userLanguage !== 'en') {
+        console.log(`[ChatAPI] Translating neighborhood response from English to ${userLanguage}`)
+        const translationResult = await translateText(neighborhoodContent, userLanguage, 'en')
+        if (translationResult && translationResult.translationRequired) {
+          finalNeighborhoodContent = translationResult.translatedText
+          console.log(`[ChatAPI] Neighborhood response translated: "${finalNeighborhoodContent}"`)
+        }
+      }
+
+      return NextResponse.json({ 
+        success: true, 
+        data: {
+          action: 'reply',
+          content: finalNeighborhoodContent
         }
       })
     }
@@ -1903,6 +2053,126 @@ ${projectId ? `• Project ID: ${projectId}` : '• No project ID provided'}`
         data: {
           action: 'reply',
           content: finalLocationContent
+        }
+      })
+    }
+    
+    // Handle property analysis queries
+    if (isPropertyAnalysis && projectId) {
+      console.log(`[ChatAPI] Property analysis query - projectId: ${projectId}`)
+      console.log(`[ChatAPI] Property analysis query - compactedContext available: ${!!compactedContext}`)
+      
+      const rd = compactedContext?.realtorDetails
+      const nb = compactedContext?.neighborhood
+      const yd = compactedContext?.yieldData
+      const rv = compactedContext?.reviewData
+      
+      // Extract property data
+      const address = rd?.location?.address?.line
+      const city = rd?.location?.address?.city
+      const state = rd?.location?.address?.state_code
+      const listPrice = rd?.list_price
+      const beds = rd?.description?.beds
+      const baths = rd?.description?.baths
+      const sqft = rd?.building_size?.size
+      const hoaFee = rd?.hoa?.fee
+      const status = rd?.status
+      const dom = rd?.days_on_market
+      const yearBuilt = rd?.year_built
+      const propertyType = rd?.description?.type
+      const propertyDescription = rd?.description?.text
+      
+      // Calculate key metrics
+      const ppsf = listPrice && sqft ? Math.round(listPrice / sqft) : null
+      const totalMonthlyCost = listPrice ? Math.round((listPrice * 0.08 / 12) + (hoaFee || 0)) : null
+      const propertyAge = yearBuilt ? new Date().getFullYear() - yearBuilt : null
+      
+      // Build comprehensive property analysis
+      let analysisContent = `🏠 **Property Analysis: ${address || 'This Property'}**
+
+**Property Overview:**
+${listPrice ? `• **List Price:** $${listPrice.toLocaleString()}` : ''}
+${ppsf ? `• **Price per sqft:** $${ppsf}` : ''}
+${totalMonthlyCost ? `• **Estimated monthly cost:** $${totalMonthlyCost.toLocaleString()}` : ''}
+${beds ? `• **Bedrooms:** ${beds}` : ''}
+${baths ? `• **Bathrooms:** ${baths}` : ''}
+${sqft ? `• **Square footage:** ${sqft.toLocaleString()}` : ''}
+${propertyAge ? `• **Age:** ${propertyAge} years (built ${yearBuilt})` : ''}
+${propertyType ? `• **Property type:** ${propertyType}` : ''}
+${hoaFee ? `• **HOA fees:** $${hoaFee}/month` : ''}
+${status ? `• **Status:** ${status}` : ''}
+${dom !== undefined ? `• **Days on market:** ${dom}` : ''}
+
+**✅ PROS:**
+${ppsf && ppsf < 500 ? `• **Competitive pricing** - $${ppsf}/sqft is below market average` : ''}
+${beds && beds >= 3 ? `• **Family-friendly layout** - ${beds} bedrooms appeal to families` : ''}
+${baths && baths >= 2 ? `• **Multiple bathrooms** - ${baths} bathrooms provide convenience` : ''}
+${propertyAge && propertyAge < 10 ? `• **Modern construction** - Built in ${yearBuilt}, minimal maintenance needed` : ''}
+${hoaFee && hoaFee < 200 ? `• **Low HOA fees** - $${hoaFee}/month is reasonable` : ''}
+${dom !== undefined && dom < 15 ? `• **Hot market** - Listed recently, high demand` : ''}
+${propertyDescription && propertyDescription.toLowerCase().includes('development opportunity') ? `• **Development potential** - Property has entitled permits for development` : ''}
+${propertyDescription && propertyDescription.toLowerCase().includes('multiple units') ? `• **Multiple unit potential** - Could generate rental income` : ''}
+${propertyDescription && propertyDescription.toLowerCase().includes('outdoor spaces') ? `• **Outdoor spaces** - Patio/balcony adds value` : ''}
+${propertyDescription && propertyDescription.toLowerCase().includes('natural light') ? `• **Natural light** - Bright, airy spaces` : ''}
+${propertyDescription && propertyDescription.toLowerCase().includes('good condition') ? `• **Good condition** - Move-in ready, minimal repairs needed` : ''}
+${propertyDescription && propertyDescription.toLowerCase().includes('walking distance') ? `• **Walkable location** - Close to amenities` : ''}
+${nb?.walkability_score && nb.walkability_score > 80 ? `• **Excellent walkability** - Walk Score: ${nb.walkability_score}` : ''}
+${nb?.schools?.length && nb.schools.length > 0 ? `• **Good schools nearby** - ${nb.schools.length} schools in the area` : ''}
+${yd && yd.capRate > 5 ? `• **Good rental potential** - Cap rate: ${yd.capRate}%` : ''}
+
+**❌ CONS:**
+${ppsf && ppsf > 800 ? `• **Premium pricing** - $${ppsf}/sqft is above market average` : ''}
+${beds && beds === 1 ? `• **Limited appeal** - Single bedroom limits rental potential` : ''}
+${propertyAge && propertyAge > 30 ? `• **Older property** - Built in ${yearBuilt}, may need updates` : ''}
+${hoaFee && hoaFee > 500 ? `• **High HOA fees** - $${hoaFee}/month impacts cash flow` : ''}
+${dom !== undefined && dom > 60 ? `• **Slow market** - ${dom} days on market suggests pricing issues` : ''}
+${propertyDescription && propertyDescription.toLowerCase().includes('needs renovation') ? `• **Requires renovation** - Significant investment needed` : ''}
+${propertyDescription && propertyDescription.toLowerCase().includes('fixer') ? `• **Fixer-upper** - Major repairs required` : ''}
+${yd && yd.capRate < 3 ? `• **Poor rental potential** - Cap rate: ${yd.capRate}% is low` : ''}
+${!nb?.walkability_score || nb.walkability_score < 50 ? `• **Limited walkability** - Car-dependent location` : ''}
+${!nb?.schools || nb.schools.length === 0 ? `• **No nearby schools** - May not appeal to families` : ''}
+
+**📊 MARKET ANALYSIS:**
+${ppsf ? `• **Price positioning:** $${ppsf}/sqft ${ppsf < 400 ? '(below market)' : ppsf < 600 ? '(at market)' : '(above market)'}` : ''}
+${dom !== undefined ? `• **Market pace:** ${dom < 15 ? 'Hot market - act fast!' : dom < 45 ? 'Normal pace' : 'Slow market - negotiation opportunity'}` : ''}
+${yd ? `• **Investment potential:** Cap rate ${yd.capRate}% ${yd.capRate > 5 ? '(good for rentals)' : yd.capRate > 3 ? '(moderate)' : '(poor for rentals)'}` : ''}
+
+**💡 RECOMMENDATION:**
+${(() => {
+  let score = 5
+  if (ppsf && ppsf < 500) score += 1
+  if (beds && beds >= 3) score += 1
+  if (hoaFee && hoaFee < 200) score += 1
+  if (dom !== undefined && dom < 30) score += 1
+  if (yd && yd.capRate > 5) score += 1
+  if (nb?.walkability_score && nb.walkability_score > 80) score += 1
+  if (ppsf && ppsf > 800) score -= 1
+  if (hoaFee && hoaFee > 500) score -= 1
+  if (dom !== undefined && dom > 60) score -= 1
+  if (yd && yd.capRate < 3) score -= 1
+  
+  if (score >= 8) return '**Excellent property** - Strong fundamentals, good value, recommended for purchase'
+  if (score >= 6) return '**Good property** - Solid choice with some considerations'
+  if (score >= 4) return '**Moderate property** - Consider carefully, negotiate price'
+  return '**Challenging property** - Significant concerns, proceed with caution'
+})()}`
+
+      // Translate the response to user's language if not English
+      let finalAnalysisContent = analysisContent
+      if (userLanguage !== 'en') {
+        console.log(`[ChatAPI] Translating property analysis response from English to ${userLanguage}`)
+        const translationResult = await translateText(analysisContent, userLanguage, 'en')
+        if (translationResult && translationResult.translationRequired) {
+          finalAnalysisContent = translationResult.translatedText
+          console.log(`[ChatAPI] Property analysis response translated: "${finalAnalysisContent}"`)
+        }
+      }
+      
+      return NextResponse.json({ 
+        success: true, 
+        data: {
+          action: 'reply',
+          content: finalAnalysisContent
         }
       })
     }
