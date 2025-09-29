@@ -379,7 +379,7 @@ export default function AboutPage() {
                 variant="outline" 
                 size="sm" 
                 className="w-full"
-                onClick={() => window.open('https://youtube.com/watch?v=placeholder', '_blank')}
+                onClick={() => window.open('https://youtu.be/ZPXZ6U0pTxM', '_blank')}
               >
                 Watch Demo
               </Button>
